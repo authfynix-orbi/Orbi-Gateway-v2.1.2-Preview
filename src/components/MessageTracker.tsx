@@ -5,7 +5,7 @@ import { MessageSquare, Trash2, RefreshCw, Eye, Filter, X, CheckCircle2, Clock, 
 
 interface MessageLog {
   id: string;
-  status: 'pending' | 'queued' | 'processing' | 'sent' | 'delivered' | 'failed';
+  status: 'pending' | 'queued' | 'processing' | 'sent' | 'delivered' | 'failed' | 'received';
   error?: string;
   timestamp: any;
   deliveredAt?: any;
@@ -13,6 +13,9 @@ interface MessageLog {
   body: string;
   recipient: string;
   retryCount?: number;
+  direction?: 'inbound' | 'outbound';
+  sender?: string;
+  deviceId?: string;
 }
 
 interface Template {
@@ -23,7 +26,7 @@ interface Template {
 
 export default function MessageTracker() {
   const [messages, setMessages] = useState<MessageLog[]>([]);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'queued' | 'processing' | 'sent' | 'delivered' | 'failed'>('all');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'queued' | 'processing' | 'sent' | 'delivered' | 'failed' | 'received'>('all');
   const [selectedMessage, setSelectedMessage] = useState<MessageLog | null>(null);
   const [isResending, setIsResending] = useState<string | null>(null);
   
@@ -253,6 +256,7 @@ export default function MessageTracker() {
       case 'sent': return 'text-blue-500';
       case 'delivered': return 'text-emerald-500';
       case 'failed': return 'text-red-500';
+      case 'received': return 'text-violet-500';
       default: return 'text-slate-500';
     }
   };
@@ -288,6 +292,7 @@ export default function MessageTracker() {
             <option value="sent">Sent</option>
             <option value="delivered">Delivered</option>
             <option value="failed">Failed</option>
+            <option value="received">Received</option>
           </select>
           <button
             onClick={clearAll}
@@ -312,11 +317,17 @@ export default function MessageTracker() {
                   {msg.status === 'sent' && <Send className="w-5 h-5" />}
                   {msg.status === 'delivered' && <CheckCircle2 className="w-5 h-5" />}
                   {msg.status === 'failed' && <AlertCircle className="w-5 h-5" />}
+                  {msg.status === 'received' && <MessageSquare className="w-5 h-5" />}
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-slate-900">{msg.recipient || 'Unknown Recipient'}</p>
+                  <p className="text-sm font-bold text-slate-900">
+                    {msg.direction === 'inbound' ? (msg.sender || msg.recipient || 'Unknown Sender') : (msg.recipient || 'Unknown Recipient')}
+                  </p>
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-slate-500 capitalize">{msg.status}</p>
+                    {msg.direction === 'inbound' ? (
+                      <span className="text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded font-bold">Inbox</span>
+                    ) : null}
                     {msg.retryCount ? (
                       <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">Retries: {msg.retryCount}</span>
                     ) : null}
@@ -355,8 +366,14 @@ export default function MessageTracker() {
             </div>
             <div className="space-y-4">
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Recipient</p>
-                <p className="text-sm font-medium text-slate-900">{selectedMessage.recipient}</p>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  {selectedMessage.direction === 'inbound' ? 'Sender' : 'Recipient'}
+                </p>
+                <p className="text-sm font-medium text-slate-900">
+                  {selectedMessage.direction === 'inbound'
+                    ? (selectedMessage.sender || selectedMessage.recipient)
+                    : selectedMessage.recipient}
+                </p>
               </div>
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Status</p>

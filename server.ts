@@ -7,6 +7,7 @@ import admin from "firebase-admin";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
 import crypto from "crypto";
+import os from "os";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,9 @@ const STALE_CHECK_INTERVAL_MS = 30000; // How often to check for stale devices
 const STALE_PROCESSING_TIMEOUT_MS = 120000; // Requeue jobs stuck in processing for 2+ minutes
 const STALE_PROCESSING_CHECK_INTERVAL_MS = 30000;
 const STALE_PROCESSING_BATCH_SIZE = 100;
+const SERVICE_VERSION = process.env.ORBI_GATEWAY_VERSION?.trim()
+  || process.env.npm_package_version?.trim()
+  || "0.0.0";
 
 // Lazy initialization for Firebase Admin
 let firebaseAdminApp: admin.app.App | null = null;
@@ -329,12 +333,22 @@ async function startServer() {
     });
   };
 
+  const buildHealthPayload = () => ({
+    status: "NOMINAL",
+    node: os.hostname(),
+    version: SERVICE_VERSION,
+    uptime: process.uptime(),
+    circuits: [] as string[],
+    ledger: "VERIFIED",
+    ts: Date.now(),
+  });
+
   // Health check endpoint for the platform
   app.get("/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    res.json(buildHealthPayload());
   });
   app.get("/heath", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    res.json(buildHealthPayload());
   });
 
   // Device status endpoint for debugging
@@ -946,6 +960,83 @@ async function startServer() {
     } catch (err) {
       console.error("Error processing delivery report:", err);
       res.status(500).json({ error: "Failed to process delivery report" });
+    }
+  });
+
+  app.post("/api/messages/inbound", async (req, res) => {
+    const { eventId, sender, body, deviceId, ownerUid, timestampMs } = req.body;
+
+    if (!eventId || !sender || !body || !deviceId) {
+      return res.status(400).json({
+        error: "eventId, sender, body, and deviceId are required",
+      });
+    }
+
+    try {
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.json({ success: true, messageId: eventId, message: "Inbound message accepted (mock)" });
+      }
+
+      const db = adminApp.firestore();
+      const deviceDoc = await db.collection("devices").doc(deviceId).get();
+      const resolvedOwnerUid =
+        (deviceDoc.exists ? deviceDoc.data()?.ownerUid || null : null) ||
+        (typeof ownerUid === "string" && ownerUid.trim() ? ownerUid.trim() : null);
+
+      const messageRef = db.collection("message_logs").doc(eventId);
+      const existingDoc = await messageRef.get();
+      if (existingDoc.exists) {
+        return res.json({
+          success: true,
+          duplicate: true,
+          messageId: existingDoc.id,
+          message: "Inbound message already recorded",
+        });
+      }
+
+      const inboundLog: any = {
+        recipient: sender,
+        sender,
+        body,
+        status: "received",
+        channel: "sms",
+        direction: "inbound",
+        messageType: "inbound",
+        source: "device_inbox",
+        deviceId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (resolvedOwnerUid) {
+        inboundLog.createdBy = resolvedOwnerUid;
+        inboundLog.ownerUid = resolvedOwnerUid;
+      }
+      if (timestampMs != null) {
+        const normalizedTs = Number(timestampMs);
+        if (Number.isFinite(normalizedTs) && normalizedTs > 0) {
+          inboundLog.deviceTimestamp = admin.firestore.Timestamp.fromMillis(normalizedTs);
+        }
+      }
+
+      await messageRef.set(inboundLog, { merge: false });
+      await logActivity(
+        "incoming_sms",
+        `Inbound SMS received from ${sender} on device ${deviceId}`,
+        deviceId,
+        resolvedOwnerUid,
+      );
+
+      return res.json({
+        success: true,
+        messageId: eventId,
+        ownerUid: resolvedOwnerUid,
+      });
+    } catch (error) {
+      console.error("Error processing inbound SMS:", error);
+      return res.status(500).json({ error: "Failed to process inbound SMS" });
     }
   });
 
@@ -1591,6 +1682,43 @@ async function startServer() {
                 logActivity("delivery_report", `Message ${data.messageId} delivery status: ${data.status}`, deviceId, ownerUid);
               }
             }).catch(() => {});
+          }
+        } else if (data.type === "incoming_sms") {
+          if (adminApp && data.eventId && data.sender && data.body && deviceId) {
+            const db = adminApp.firestore();
+            const inboundRef = db.collection("message_logs").doc(String(data.eventId));
+            const existingDoc = await inboundRef.get();
+            if (!existingDoc.exists) {
+              const inboundLog: any = {
+                recipient: String(data.sender),
+                sender: String(data.sender),
+                body: String(data.body),
+                status: "received",
+                channel: "sms",
+                direction: "inbound",
+                messageType: "inbound",
+                source: "device_inbox",
+                deviceId,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              };
+              if (ownerUid) {
+                inboundLog.createdBy = ownerUid;
+                inboundLog.ownerUid = ownerUid;
+              }
+              const incomingTs = Number(data.timestampMs);
+              if (Number.isFinite(incomingTs) && incomingTs > 0) {
+                inboundLog.deviceTimestamp = admin.firestore.Timestamp.fromMillis(incomingTs);
+              }
+              await inboundRef.set(inboundLog);
+              await logActivity(
+                "incoming_sms",
+                `Inbound SMS received from ${data.sender} on device ${deviceId}`,
+                deviceId,
+                ownerUid,
+              );
+            }
           }
         }
       } catch (error) {
