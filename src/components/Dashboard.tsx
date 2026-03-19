@@ -206,10 +206,10 @@ export default function Dashboard({ user }: { user: User | null }) {
             <p className="section-kicker">
               Executive Overview
             </p>
-            <h1 className="section-heading max-w-3xl">
+            <h1 className="display-heading max-w-3xl text-[1.9rem] md:text-[2.45rem]">
               Command visibility for delivery, queue pressure, and gateway readiness.
             </h1>
-            <p className="max-w-2xl text-sm font-medium leading-6 text-slate-600 md:text-base">
+            <p className="section-subcopy max-w-2xl">
               The dashboard is now focused on operating metrics only. Detailed event history remains on the
               dedicated Activity page where it belongs.
             </p>
@@ -241,7 +241,7 @@ export default function Dashboard({ user }: { user: User | null }) {
             <p className="section-kicker">
               Operations Posture
             </p>
-            <h2 className="section-heading">Service posture</h2>
+            <h2 className="display-heading text-[1.25rem] md:text-[1.5rem]">Service posture</h2>
           </div>
           <div className="space-y-4">
             <SignalRow
@@ -274,7 +274,7 @@ export default function Dashboard({ user }: { user: User | null }) {
         </div>
       </section>
 
-      <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="stat-grid">
         <StatCard
           title="Message Volume"
           value={stats.totalMessages.toLocaleString()}
@@ -306,13 +306,13 @@ export default function Dashboard({ user }: { user: User | null }) {
       </section>
 
       <section className="grid gap-8 xl:grid-cols-[1.7fr_1fr]">
-        <div className="enterprise-card enterprise-card-strong p-7 md:p-8">
-          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="panel-shell min-w-0">
+          <div className="panel-head">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">
+              <p className="panel-kicker">
                 Throughput Trend
               </p>
-              <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+              <h3 className="panel-title">
                 Delivery performance over the last seven days
               </h3>
             </div>
@@ -327,7 +327,7 @@ export default function Dashboard({ user }: { user: User | null }) {
               </span>
             </div>
           </div>
-          <div className="h-[340px] w-full">
+          <div className="h-[340px] min-h-[340px] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 6, left: -20, bottom: 0 }}>
                 <defs>
@@ -380,11 +380,11 @@ export default function Dashboard({ user }: { user: User | null }) {
         </div>
 
         <div className="space-y-6">
-          <div className="enterprise-card enterprise-card-strong p-7">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">
+          <div className="panel-shell">
+            <p className="panel-kicker">
               Channel Mix
             </p>
-            <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+            <h3 className="panel-title">
               Traffic distribution
             </h3>
             <div className="mt-6 space-y-4">
@@ -414,11 +414,11 @@ export default function Dashboard({ user }: { user: User | null }) {
             </div>
           </div>
 
-          <div className="enterprise-card enterprise-card-strong p-7">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">
+          <div className="panel-shell">
+            <p className="panel-kicker">
               Governance
             </p>
-            <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+            <h3 className="panel-title">
               Operator guidance
             </h3>
             <div className="mt-6 space-y-4">

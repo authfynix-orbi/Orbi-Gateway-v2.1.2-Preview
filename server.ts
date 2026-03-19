@@ -376,7 +376,7 @@ async function startServer() {
   app.get("/api/status", (req, res) => {
     res.json({ 
       gateway: "ORBI Gateway",
-      version: "1.0.1",
+      version: SERVICE_VERSION,
       status: "active",
       uptime: process.uptime()
     });

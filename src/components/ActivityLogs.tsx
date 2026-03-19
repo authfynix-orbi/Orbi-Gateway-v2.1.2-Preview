@@ -82,25 +82,25 @@ export default function ActivityLogs() {
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-6 py-8 md:px-8">
       <section className="enterprise-card enterprise-card-strong overflow-hidden">
-        <div className="border-b border-slate-200 bg-[linear-gradient(135deg,rgba(255,255,255,0.95),rgba(236,242,255,0.9))] px-7 py-7 md:px-8">
-          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+        <div className="border-b border-slate-200 bg-[linear-gradient(135deg,rgba(255,255,255,0.97),rgba(242,247,255,0.92))] px-7 py-7 md:px-8">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
             <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-indigo-700">
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-cyan-700">
                 <Activity className="h-3.5 w-3.5" />
                 Activity Center
               </div>
               <div>
-                <h1 className="text-3xl font-black tracking-[-0.03em] text-slate-950 md:text-4xl">
+                <h1 className="display-heading text-[15px] md:text-[16px]">
                   Event-level operational history
                 </h1>
-                <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-slate-600 md:text-base">
+                <p className="section-subcopy mt-2 max-w-3xl">
                   The activity stream is intentionally separated from the dashboard so operators can inspect
                   device registration, delivery transitions, and dispatch anomalies without KPI noise.
                 </p>
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[360px]">
               <SummaryCard
                 title="Visible Events"
                 value={loading ? '...' : logs.length.toLocaleString()}
@@ -131,7 +131,7 @@ export default function ActivityLogs() {
               <LegendRow icon={<AlertCircle className="h-4 w-4 text-rose-600" />} label="Failures or recoverable anomalies" />
             </div>
 
-            <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-5">
+            <div className="soft-block mt-8 bg-white">
               <div className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
                 <ShieldCheck className="h-4 w-4 text-slate-700" />
                 Review posture
@@ -143,7 +143,7 @@ export default function ActivityLogs() {
             </div>
           </aside>
 
-          <section className="min-h-[640px]">
+          <section className="min-h-[640px] max-h-[70vh] overflow-y-auto">
             {loading ? (
               <div className="flex h-full min-h-[640px] items-center justify-center">
                 <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600" />
@@ -219,7 +219,7 @@ function SummaryCard({
   tone: string;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white/85 p-4">
+    <div className="rounded-[24px] border border-slate-200 bg-white/90 p-4 shadow-sm">
       <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">{title}</p>
       <div className={`mt-3 inline-flex rounded-2xl px-3 py-2 ${summaryToneClass(tone)}`}>
         <span className="text-lg font-black tracking-tight">{value}</span>

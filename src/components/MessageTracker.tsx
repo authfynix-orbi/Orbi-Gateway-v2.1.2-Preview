@@ -1,7 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, orderBy, doc, where, getDoc, getDocs } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { MessageSquare, Trash2, RefreshCw, Eye, Filter, X, CheckCircle2, Clock, AlertCircle, Send, Plus, Loader2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+} from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Download,
+  Eye,
+  Loader2,
+  MessageSquare,
+  Plus,
+  RefreshCw,
+  Search,
+  Send,
+  Trash2,
+  X,
+} from 'lucide-react';
 
 interface MessageLog {
   id: string;
@@ -15,6 +39,7 @@ interface MessageLog {
   retryCount?: number;
   direction?: 'inbound' | 'outbound';
   sender?: string;
+  channel?: string;
   deviceId?: string;
 }
 
@@ -24,13 +49,18 @@ interface Template {
   body: string;
 }
 
+type MessageStatus = MessageLog['status'] | 'all';
+
+const statusOptions: MessageStatus[] = ['all', 'pending', 'queued', 'processing', 'sent', 'delivered', 'failed', 'received'];
+
 export default function MessageTracker() {
   const [messages, setMessages] = useState<MessageLog[]>([]);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'queued' | 'processing' | 'sent' | 'delivered' | 'failed' | 'received'>('all');
+  const [filter, setFilter] = useState<MessageStatus>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedMessage, setSelectedMessage] = useState<MessageLog | null>(null);
   const [isResending, setIsResending] = useState<string | null>(null);
-  
-  // Custom Send Modal State
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [sendType, setSendType] = useState<'raw' | 'template'>('raw');
   const [recipient, setRecipient] = useState('');
@@ -38,76 +68,104 @@ export default function MessageTracker() {
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isSending, setIsSending] = useState(false);
-  const [feedback, setFeedback] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
-  const [isClearing, setIsClearing] = useState(false);
+  const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
-    console.log('MessageTracker useEffect running, auth.currentUser:', auth.currentUser);
-    if (!db || !auth.currentUser) {
-      console.log('MessageTracker useEffect returning early, db or auth.currentUser missing');
-      return;
-    }
-    console.log('MessageTracker useEffect proceeding');
+    if (!db || !auth.currentUser) return;
 
-    let unsubscribe: () => void;
+    let unsubscribe: (() => void) | undefined;
 
     const setupListener = async () => {
       try {
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser!.uid));
-        const isAdmin = (userDoc.exists() && userDoc.data().role === 'admin') || 
-                        (auth.currentUser?.email === 'auth.fynix@gmail.com' && auth.currentUser?.emailVerified === true);
+        const isAdmin =
+          (userDoc.exists() && userDoc.data().role === 'admin') ||
+          (auth.currentUser?.email === 'auth.fynix@gmail.com' && auth.currentUser?.emailVerified === true);
 
-        const q = isAdmin 
+        const q = isAdmin
           ? query(collection(db, 'message_logs'), orderBy('timestamp', 'desc'))
           : query(collection(db, 'message_logs'), where('createdBy', '==', auth.currentUser!.uid), orderBy('timestamp', 'desc'));
 
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          console.log('MessageTracker snapshot size:', snapshot.size);
-          const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MessageLog));
-          console.log('MessageTracker msgs:', msgs);
-          setMessages(msgs);
-        }, (error) => {
-          console.error("MessageTracker: Error fetching messages:", error);
-        });
+        unsubscribe = onSnapshot(
+          q,
+          (snapshot) => {
+            const msgs = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() } as MessageLog));
+            setMessages(msgs);
+          },
+          (error) => {
+            console.error('MessageTracker: Error fetching messages:', error);
+          },
+        );
       } catch (error) {
-        console.error("MessageTracker: Error setting up listener:", error);
+        console.error('MessageTracker: Error setting up listener:', error);
       }
     };
 
     setupListener();
 
-    return () => { if (unsubscribe) unsubscribe(); };
-  }, [auth.currentUser]);
+    return () => unsubscribe?.();
+  }, []);
 
   useEffect(() => {
-    if (feedback) {
-      const timer = setTimeout(() => setFeedback(null), 3000);
-      return () => clearTimeout(timer);
-    }
+    if (!feedback) return;
+    const timer = setTimeout(() => setFeedback(null), 3000);
+    return () => clearTimeout(timer);
   }, [feedback]);
 
-  // Fetch templates for the dropdown
   useEffect(() => {
     if (!db || !auth.currentUser || !isSendModalOpen) return;
+
     const fetchTemplates = async () => {
       try {
         const userDoc = await getDoc(doc(db, 'users', auth.currentUser!.uid));
-        const isAdmin = (userDoc.exists() && userDoc.data().role === 'admin') ||
-                        (auth.currentUser?.email === 'auth.fynix@gmail.com' && auth.currentUser?.emailVerified === true);
+        const isAdmin =
+          (userDoc.exists() && userDoc.data().role === 'admin') ||
+          (auth.currentUser?.email === 'auth.fynix@gmail.com' && auth.currentUser?.emailVerified === true);
         const q = isAdmin
           ? query(collection(db, 'message_templates'), orderBy('name'))
           : query(collection(db, 'message_templates'), where('createdBy', '==', auth.currentUser!.uid), orderBy('name'));
         const snap = await getDocs(q);
-        setTemplates(snap.docs.map(d => ({ id: d.id, name: d.data().name, body: d.data().body })));
-      } catch (err) {
-        console.error("Error fetching templates:", err);
+        setTemplates(snap.docs.map((entry) => ({ id: entry.id, name: entry.data().name, body: entry.data().body })));
+      } catch (error) {
+        console.error('Error fetching templates:', error);
       }
     };
-    fetchTemplates();
-  }, [isSendModalOpen, auth.currentUser]);
 
-  const filteredMessages = filter === 'all' ? messages : messages.filter(m => m.status === filter);
+    fetchTemplates();
+  }, [isSendModalOpen]);
+
+  const filteredMessages = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    return messages.filter((message) => {
+      const filterMatch = filter === 'all' || message.status === filter;
+      if (!filterMatch) return false;
+      if (!normalizedSearch) return true;
+      const haystack = [
+        message.id,
+        message.recipient,
+        message.sender,
+        message.body,
+        message.status,
+        message.deviceId,
+        message.direction,
+        message.channel,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [messages, filter, searchQuery]);
+
+  const summary = useMemo(
+    () => ({
+      total: filteredMessages.length,
+      queued: filteredMessages.filter((entry) => entry.status === 'queued').length,
+      delivered: filteredMessages.filter((entry) => entry.status === 'delivered').length,
+      received: filteredMessages.filter((entry) => entry.status === 'received' || entry.direction === 'inbound').length,
+    }),
+    [filteredMessages],
+  );
 
   const deleteMessage = async (id: string) => {
     if (!auth.currentUser) return;
@@ -136,7 +194,7 @@ export default function MessageTracker() {
     }
   };
 
-  const clearAll = async () => {
+  const clearCurrentView = async () => {
     if (!auth.currentUser || filteredMessages.length === 0) return;
     setIsClearing(true);
     try {
@@ -147,14 +205,14 @@ export default function MessageTracker() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ messageIds: filteredMessages.map((m) => m.id) }),
+        body: JSON.stringify({ messageIds: filteredMessages.map((message) => message.id) }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || 'Failed to clear messages');
       }
-      setFeedback({ message: `Deleted ${data.deletedCount || 0} messages`, type: 'success' });
       setSelectedMessage(null);
+      setFeedback({ message: `Deleted ${data.deletedCount || 0} messages`, type: 'success' });
     } catch (error: any) {
       console.error('Failed to clear messages:', error);
       setFeedback({ message: error.message || 'Failed to clear messages', type: 'error' });
@@ -173,7 +231,7 @@ export default function MessageTracker() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ messageId: id })
+        body: JSON.stringify({ messageId: id }),
       });
       const data = await response.json();
       if (data.success) {
@@ -185,7 +243,7 @@ export default function MessageTracker() {
         setFeedback({ message: data.error || 'Failed to resend', type: 'error' });
       }
     } catch (error) {
-      console.error("Error resending:", error);
+      console.error('Error resending:', error);
       setFeedback({ message: 'Network error while resending', type: 'error' });
     } finally {
       setIsResending(null);
@@ -195,25 +253,24 @@ export default function MessageTracker() {
   const handleSendCustom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!recipient) return;
-    
+
     setIsSending(true);
     try {
       const token = await auth.currentUser?.getIdToken();
       let endpoint = '/api/messages/send';
-      let payload: any = {
+      const payload: Record<string, any> = {
         recipient,
         ownerUid: auth.currentUser?.uid,
-        channel: 'sms'
+        channel: 'sms',
       };
 
       if (sendType === 'raw') {
-        if (!body) throw new Error("Message body is required");
+        if (!body) throw new Error('Message body is required');
         payload.body = body;
       } else {
-        if (!selectedTemplate) throw new Error("Template is required");
+        if (!selectedTemplate) throw new Error('Template is required');
         endpoint = '/api/send-template';
         payload.templateName = selectedTemplate;
-        // Basic variables parsing could go here, but we'll send empty variables for now
         payload.data = {};
       }
 
@@ -223,235 +280,319 @@ export default function MessageTracker() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
-      
+
       const data = await response.json();
-      if (data.success) {
-        const outcome = data.pushed
-          ? 'Message pushed to live device'
-          : data.wakeTriggered
-            ? 'Message queued and device wake-up triggered'
-            : 'Message queued successfully';
-        setFeedback({ message: outcome, type: 'success' });
-        setIsSendModalOpen(false);
-        setRecipient('');
-        setBody('');
-      } else {
+      if (!data.success) {
         throw new Error(data.error || 'Failed to send message');
       }
+
+      const outcome = data.pushed
+        ? 'Message pushed to live device'
+        : data.wakeTriggered
+          ? 'Message queued and device wake-up triggered'
+          : 'Message queued successfully';
+      setFeedback({ message: outcome, type: 'success' });
+      setIsSendModalOpen(false);
+      setRecipient('');
+      setBody('');
+      setSelectedTemplate('');
     } catch (error: any) {
-      console.error("Error sending custom message:", error);
+      console.error('Error sending custom message:', error);
       setFeedback({ message: error.message || 'Failed to send message', type: 'error' });
     } finally {
       setIsSending(false);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending':
-      case 'queued': return 'text-slate-500';
-      case 'processing': return 'text-amber-500';
-      case 'sent': return 'text-blue-500';
-      case 'delivered': return 'text-emerald-500';
-      case 'failed': return 'text-red-500';
-      case 'received': return 'text-violet-500';
-      default: return 'text-slate-500';
-    }
+  const exportCurrentView = async () => {
+    const payload = filteredMessages.map((entry) => ({
+      id: entry.id,
+      recipient: entry.recipient,
+      sender: entry.sender || null,
+      status: entry.status,
+      direction: entry.direction || null,
+      channel: entry.channel || 'sms',
+      deviceId: entry.deviceId || null,
+      timestamp: formatTimestamp(entry.timestamp),
+      deliveredAt: formatTimestamp(entry.deliveredAt),
+      body: entry.body,
+      error: entry.error || null,
+    }));
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    setFeedback({ message: 'Current message view copied as JSON', type: 'success' });
   };
 
   return (
-    <div className="p-6 enterprise-card relative">
-      {/* Feedback Toast */}
+    <div className="relative space-y-6">
       {feedback && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl shadow-2xl animate-in slide-in-from-bottom duration-300 flex items-center gap-3 border ${
-          feedback.type === 'success' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-red-600 border-red-500 text-white'
-        }`}>
-          <span className="font-bold text-sm">{feedback.message}</span>
+        <div
+          className={`fixed bottom-8 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-2xl border px-6 py-3 shadow-2xl ${
+            feedback.type === 'success' ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-red-500 bg-red-600 text-white'
+          }`}
+        >
+          <span className="text-sm font-bold">{feedback.message}</span>
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div>
-          <p className="section-kicker">Message Control</p>
-          <h2 className="section-heading">Message Tracking</h2>
+      <div className="section-shell flex flex-col gap-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <p className="section-kicker">Delivery Control</p>
+            <h2 className="section-heading">Message Tracking</h2>
+            <p className="section-subcopy">
+              Review outbound queue state, received inbox traffic, and message body details from one cleaner command surface.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => setIsSendModalOpen(true)} className="enterprise-button-primary">
+              <Plus className="h-4 w-4" /> Send Message
+            </button>
+            <button
+              onClick={exportCurrentView}
+              disabled={filteredMessages.length === 0}
+              className="enterprise-button-secondary disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" /> Export View
+            </button>
+            <button
+              onClick={clearCurrentView}
+              disabled={isClearing || filteredMessages.length === 0}
+              className="enterprise-button-secondary border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50"
+            >
+              {isClearing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Clear View
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button 
-            onClick={() => setIsSendModalOpen(true)} 
-            className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 flex items-center gap-2 transition-colors shadow-sm"
+
+        <div className="stat-grid">
+          <MetricCard label="Visible" value={summary.total.toString()} tone="slate" />
+          <MetricCard label="Queued" value={summary.queued.toString()} tone="amber" />
+          <MetricCard label="Delivered" value={summary.delivered.toString()} tone="emerald" />
+          <MetricCard label="Inbox" value={summary.received.toString()} tone="violet" />
+        </div>
+
+        <div className="flex flex-col gap-3 lg:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              id="message-search"
+              name="messageSearch"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by recipient, sender, status, device, body, or message ID"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm font-medium focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/5"
+            />
+          </div>
+          <select
+            id="message-status-filter"
+            name="messageStatusFilter"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value as MessageStatus)}
+            className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold"
           >
-            <Plus className="w-4 h-4" /> Send Message
-          </button>
-          <select value={filter} onChange={(e) => setFilter(e.target.value as any)} className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold bg-slate-50">
-            <option value="all">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="queued">Queued</option>
-            <option value="processing">Processing</option>
-            <option value="sent">Sent</option>
-            <option value="delivered">Delivered</option>
-            <option value="failed">Failed</option>
-            <option value="received">Received</option>
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status === 'all' ? 'All Statuses' : status.charAt(0).toUpperCase() + status.slice(1)}
+              </option>
+            ))}
           </select>
-          <button
-            onClick={clearAll}
-            disabled={isClearing || filteredMessages.length === 0}
-            className="px-3 py-2 rounded-xl bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 transition-colors disabled:opacity-50"
-          >
-            {isClearing ? 'Clearing...' : 'Clear View'}
-          </button>
         </div>
       </div>
 
-      <div className="divide-y divide-slate-100">
-        {filteredMessages.length === 0 ? (
-          <div className="text-center py-12 text-slate-500 text-sm font-medium">No messages found.</div>
-        ) : (
-          filteredMessages.map(msg => (
-            <div key={msg.id} className="py-4 flex items-center justify-between hover:bg-slate-50 px-2 rounded-xl transition-colors">
-              <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => setSelectedMessage(msg)}>
-                <div className={getStatusColor(msg.status)}>
-                  {(msg.status === 'pending' || msg.status === 'queued') && <Clock className="w-5 h-5 opacity-50" />}
-                  {msg.status === 'processing' && <Clock className="w-5 h-5" />}
-                  {msg.status === 'sent' && <Send className="w-5 h-5" />}
-                  {msg.status === 'delivered' && <CheckCircle2 className="w-5 h-5" />}
-                  {msg.status === 'failed' && <AlertCircle className="w-5 h-5" />}
-                  {msg.status === 'received' && <MessageSquare className="w-5 h-5" />}
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-900">
-                    {msg.direction === 'inbound' ? (msg.sender || msg.recipient || 'Unknown Sender') : (msg.recipient || 'Unknown Recipient')}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-slate-500 capitalize">{msg.status}</p>
-                    {msg.direction === 'inbound' ? (
-                      <span className="text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded font-bold">Inbox</span>
-                    ) : null}
-                    {msg.retryCount ? (
-                      <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">Retries: {msg.retryCount}</span>
-                    ) : null}
+      <div className="table-shell p-4 md:p-6">
+        <div className="max-h-[68vh] overflow-y-auto pr-1">
+          <div className="divide-y divide-slate-100">
+            {filteredMessages.length === 0 ? (
+              <div className="py-12 text-center text-sm font-medium text-slate-500">No messages found.</div>
+            ) : (
+              filteredMessages.map((message) => {
+                const isInbound = message.direction === 'inbound' || message.status === 'received';
+                return (
+                <div
+                  key={message.id}
+                  className="rounded-[24px] border border-transparent px-3 py-4 transition-colors hover:border-slate-200 hover:bg-slate-50/80"
+                >
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex cursor-pointer items-start gap-4 xl:flex-1" onClick={() => setSelectedMessage(message)}>
+                      <div className={`mt-0.5 flex h-11 w-11 items-center justify-center rounded-2xl border ${statusToneShell(message.status)}`}>
+                        {(message.status === 'pending' || message.status === 'queued') && <Clock className="h-5 w-5 opacity-70" />}
+                        {message.status === 'processing' && <Clock className="h-5 w-5" />}
+                        {message.status === 'sent' && <Send className="h-5 w-5" />}
+                        {message.status === 'delivered' && <CheckCircle2 className="h-5 w-5" />}
+                        {message.status === 'failed' && <AlertCircle className="h-5 w-5" />}
+                        {message.status === 'received' && <MessageSquare className="h-5 w-5" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-bold text-slate-900">
+                            {isInbound ? (message.sender || message.recipient || 'Unknown Sender') : (message.recipient || 'Unknown Recipient')}
+                          </p>
+                          <span className={`tone-chip ${statusToneChip(message.status)}`}>{message.status}</span>
+                          {isInbound ? <span className="enterprise-pill enterprise-pill-neutral">Inbox</span> : null}
+                          {message.retryCount ? <span className="enterprise-pill enterprise-pill-warning">Retries: {message.retryCount}</span> : null}
+                          {message.channel ? <span className="enterprise-pill enterprise-pill-neutral uppercase">{message.channel}</span> : null}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[13px] font-medium leading-6 text-slate-600">{message.body || 'No content'}</p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium text-slate-500">
+                          <span className="enterprise-pill enterprise-pill-neutral">Created: {formatTimestamp(message.timestamp)}</span>
+                          {message.deliveredAt ? (
+                            <span className="enterprise-pill enterprise-pill-neutral">Delivered: {formatTimestamp(message.deliveredAt)}</span>
+                          ) : null}
+                          {message.deviceId ? <span className="enterprise-pill enterprise-pill-neutral">Device: {message.deviceId}</span> : null}
+                          <span className="enterprise-pill enterprise-pill-neutral">ID: {message.id.slice(0, 10)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-1 self-end xl:self-auto">
+                      <button
+                        onClick={() => setSelectedMessage(message)}
+                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                        title="View Details"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
+                      {message.status !== 'sent' && message.status !== 'delivered' && (
+                        <button
+                          onClick={() => handleResend(message.id)}
+                          disabled={isResending === message.id}
+                          className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50"
+                          title="Force Resend"
+                        >
+                          {isResending === message.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => deleteMessage(message.id)}
+                        disabled={isDeleting === message.id}
+                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        title="Delete"
+                      >
+                        {isDeleting === message.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex gap-1">
-                <button onClick={() => setSelectedMessage(msg)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="View Details"><Eye className="w-4 h-4" /></button>
-                
-                {/* Resend Button - Only show if not already successfully sent */}
-                {msg.status !== 'sent' && msg.status !== 'delivered' && (
-                  <button 
-                    onClick={() => handleResend(msg.id)} 
-                    disabled={isResending === msg.id}
-                    className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50"
-                    title="Force Resend"
-                  >
-                    {isResending === msg.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  </button>
-                )}
-                
-	                <button onClick={() => deleteMessage(msg.id)} disabled={isDeleting === msg.id} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50" title="Delete">{isDeleting === msg.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}</button>
-              </div>
-            </div>
-          ))
-        )}
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Message Preview Modal */}
       {selectedMessage && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="enterprise-card p-6 sm:p-8 max-w-md w-full space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-black text-slate-900">Message Details</h3>
-              <button onClick={() => setSelectedMessage(null)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><X className="w-5 h-5" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="enterprise-card max-h-[85vh] w-full max-w-5xl overflow-y-auto p-6 shadow-2xl sm:p-8">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[16px] font-black text-slate-900">Message Details</h3>
+              <button onClick={() => setSelectedMessage(null)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  {selectedMessage.direction === 'inbound' ? 'Sender' : 'Recipient'}
-                </p>
-                <p className="text-sm font-medium text-slate-900">
-                  {selectedMessage.direction === 'inbound'
-                    ? (selectedMessage.sender || selectedMessage.recipient)
-                    : selectedMessage.recipient}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Status</p>
-                <div className="flex items-center gap-2">
-                  <span className={`text-sm font-bold capitalize ${getStatusColor(selectedMessage.status)}`}>{selectedMessage.status}</span>
-                  {selectedMessage.retryCount ? <span className="text-xs text-slate-500">(Retried {selectedMessage.retryCount} times)</span> : null}
+
+            <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+              <div className="min-w-0">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Content</p>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(selectedMessage.body || '')}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700"
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </button>
                 </div>
-                {selectedMessage.deliveredAt && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    Delivered at: {selectedMessage.deliveredAt.toDate ? selectedMessage.deliveredAt.toDate().toLocaleString() : new Date(selectedMessage.deliveredAt).toLocaleString()}
-                  </p>
-                )}
-                {selectedMessage.error && (
-                  <p className="text-xs text-red-600 mt-1 bg-red-50 p-2 rounded-lg border border-red-100">{selectedMessage.error}</p>
-                )}
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Content</p>
-                <div className="p-4 bg-slate-50 rounded-2xl text-sm text-slate-700 whitespace-pre-wrap border border-slate-100">
+                <div className="min-h-[260px] rounded-2xl border border-slate-100 bg-slate-50 p-5 text-sm leading-7 text-slate-700 whitespace-pre-wrap">
                   {selectedMessage.body || 'No content'}
                 </div>
               </div>
+
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                  <DetailField
+                    label={selectedMessage.direction === 'inbound' || selectedMessage.status === 'received' ? 'Sender' : 'Recipient'}
+                    value={
+                      selectedMessage.direction === 'inbound' || selectedMessage.status === 'received'
+                        ? (selectedMessage.sender || selectedMessage.recipient || 'Unknown Sender')
+                        : (selectedMessage.recipient || 'Unknown Recipient')
+                    }
+                  />
+                  <DetailField label="Status" value={selectedMessage.status} tone={statusTextTone(selectedMessage.status)} />
+                  <DetailField label="Direction" value={selectedMessage.direction || (selectedMessage.status === 'received' ? 'inbound' : 'outbound')} />
+                  <DetailField label="Created" value={formatTimestamp(selectedMessage.timestamp)} />
+                  <DetailField label="Delivered" value={formatTimestamp(selectedMessage.deliveredAt)} />
+                  <DetailField label="Device" value={selectedMessage.deviceId || 'Unassigned'} />
+                  <DetailField label="Channel" value={selectedMessage.channel || 'sms'} />
+                  <DetailField label="Message ID" value={selectedMessage.id} />
+                </div>
+
+                {selectedMessage.error && (
+                  <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">{selectedMessage.error}</div>
+                )}
+              </div>
             </div>
-            <div className="pt-4 flex justify-end">
+
+            <div className="flex justify-end gap-3 pt-5">
               {selectedMessage.status !== 'sent' && selectedMessage.status !== 'delivered' && (
-                <button 
-                  onClick={() => {
-                    handleResend(selectedMessage.id);
-                    setSelectedMessage(null);
-                  }}
-                  className="px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold rounded-xl text-sm flex items-center gap-2 transition-colors"
+                <button
+                  onClick={() => handleResend(selectedMessage.id)}
+                  className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-600 transition-colors hover:bg-emerald-100"
                 >
-                  <RefreshCw className="w-4 h-4" /> Force Resend
+                  <RefreshCw className="h-4 w-4" /> Force Resend
                 </button>
               )}
+              <button
+                onClick={() => deleteMessage(selectedMessage.id)}
+                className="flex items-center gap-2 rounded-xl bg-red-50 px-4 py-2 text-sm font-bold text-red-600 transition-colors hover:bg-red-100"
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Send Custom Message Modal */}
       {isSendModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="enterprise-card p-6 sm:p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-black text-slate-900">Send Message</h3>
-              <button onClick={() => setIsSendModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><X className="w-5 h-5" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="enterprise-card max-w-md w-full p-6 shadow-2xl sm:p-8">
+            <div className="mb-6 flex items-center justify-between">
+              <h3 className="text-[16px] font-black text-slate-900">Send Message</h3>
+              <button onClick={() => setIsSendModalOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            
+
             <form onSubmit={handleSendCustom} className="space-y-5">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Recipient Phone</label>
+                <label className="ml-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Recipient Phone</label>
                 <input
-                  id="recipient"
+                  id="send-recipient"
                   name="recipient"
                   required
                   type="text"
                   placeholder="+1234567890"
                   value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300"
+                  onChange={(event) => setRecipient(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold transition-all placeholder:text-slate-300 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/5"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Message Source</label>
-                <div className="flex p-1 bg-slate-100 rounded-xl">
+                <label className="ml-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Message Source</label>
+                <div className="flex rounded-xl bg-slate-100 p-1">
                   <button
                     type="button"
                     onClick={() => setSendType('raw')}
-                    className={`flex-1 py-1.5 text-sm font-bold rounded-lg transition-all ${sendType === 'raw' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    className={`flex-1 rounded-lg py-1.5 text-sm font-bold transition-all ${sendType === 'raw' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                   >
                     Raw Text
                   </button>
                   <button
                     type="button"
                     onClick={() => setSendType('template')}
-                    className={`flex-1 py-1.5 text-sm font-bold rounded-lg transition-all ${sendType === 'template' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    className={`flex-1 rounded-lg py-1.5 text-sm font-bold transition-all ${sendType === 'template' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                   >
                     Template
                   </button>
@@ -460,43 +601,47 @@ export default function MessageTracker() {
 
               {sendType === 'raw' ? (
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Message Body</label>
+                  <label className="ml-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Message Body</label>
                   <textarea
-                    id="messageBody"
+                    id="send-body"
                     name="messageBody"
                     required
                     rows={4}
                     placeholder="Type your message here..."
                     value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm resize-none"
+                    onChange={(event) => setBody(event.target.value)}
+                    className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/5"
                   />
                 </div>
               ) : (
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select Template</label>
+                  <label className="ml-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Select Template</label>
                   <select
-                    id="templateSelect"
+                    id="message-template"
                     name="templateSelect"
                     required
                     value={selectedTemplate}
-                    onChange={(e) => {
-                      setSelectedTemplate(e.target.value);
-                      const t = templates.find(t => t.name === e.target.value);
-                      if (t) setBody(t.body);
+                    onChange={(event) => {
+                      setSelectedTemplate(event.target.value);
+                      const template = templates.find((entry) => entry.name === event.target.value);
+                      if (template) setBody(template.body);
                     }}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold transition-all focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/5"
                   >
-                    <option value="" disabled>Choose a template...</option>
-                    {templates.map(t => (
-                      <option key={t.id} value={t.name}>{t.name}</option>
+                    <option value="" disabled>
+                      Choose a template...
+                    </option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.name}>
+                        {template.name}
+                      </option>
                     ))}
                   </select>
-                  
+
                   {selectedTemplate && (
-                    <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <p className="text-xs font-bold text-slate-400 mb-1">Preview:</p>
-                      <p className="text-sm text-slate-600 italic">{body}</p>
+                    <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                      <p className="mb-1 text-xs font-bold text-slate-400">Preview:</p>
+                      <p className="text-sm italic text-slate-600">{body}</p>
                     </div>
                   )}
                 </div>
@@ -505,9 +650,9 @@ export default function MessageTracker() {
               <button
                 type="submit"
                 disabled={isSending}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-indigo-200 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition-all hover:bg-indigo-700 disabled:opacity-50"
               >
-                {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
                 {isSending ? 'Sending...' : 'Send Message'}
               </button>
             </form>
@@ -516,4 +661,97 @@ export default function MessageTracker() {
       )}
     </div>
   );
+}
+
+function MetricCard({ label, value, tone }: { label: string; value: string; tone: 'slate' | 'amber' | 'emerald' | 'violet' }) {
+  const toneMap: Record<string, string> = {
+    slate: 'border-slate-200 bg-slate-50 text-slate-800',
+    amber: 'border-amber-200 bg-amber-50 text-amber-800',
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    violet: 'border-violet-200 bg-violet-50 text-violet-800',
+  };
+
+  return (
+    <div className={`rounded-[24px] border p-4 shadow-sm ${toneMap[tone]}`}>
+      <p className="text-[11px] font-black uppercase tracking-widest">{label}</p>
+      <p className="mt-2 text-[24px] font-black tracking-tight">{value}</p>
+    </div>
+  );
+}
+
+function DetailField({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
+      <p className={`mt-2 break-all text-sm font-bold ${tone || 'text-slate-900'}`}>{value}</p>
+    </div>
+  );
+}
+
+function formatTimestamp(timestamp: any) {
+  const date = timestamp?.toDate?.() || (timestamp ? new Date(timestamp) : null);
+  if (!date || Number.isNaN(date.getTime())) {
+    return 'Not available';
+  }
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+}
+
+function statusToneChip(status: MessageLog['status']) {
+  switch (status) {
+    case 'pending':
+    case 'queued':
+      return 'tone-chip-slate';
+    case 'processing':
+      return 'tone-chip-amber';
+    case 'sent':
+      return 'tone-chip-indigo';
+    case 'delivered':
+      return 'tone-chip-emerald';
+    case 'failed':
+      return 'tone-chip-rose';
+    case 'received':
+      return 'tone-chip-cyan';
+    default:
+      return 'tone-chip-slate';
+  }
+}
+
+function statusToneShell(status: MessageLog['status']) {
+  switch (status) {
+    case 'pending':
+    case 'queued':
+      return 'border-slate-200 bg-slate-50 text-slate-500';
+    case 'processing':
+      return 'border-amber-200 bg-amber-50 text-amber-600';
+    case 'sent':
+      return 'border-indigo-200 bg-indigo-50 text-indigo-600';
+    case 'delivered':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-600';
+    case 'failed':
+      return 'border-rose-200 bg-rose-50 text-rose-600';
+    case 'received':
+      return 'border-cyan-200 bg-cyan-50 text-cyan-600';
+    default:
+      return 'border-slate-200 bg-slate-50 text-slate-500';
+  }
+}
+
+function statusTextTone(status: MessageLog['status']) {
+  switch (status) {
+    case 'pending':
+    case 'queued':
+      return 'text-slate-500';
+    case 'processing':
+      return 'text-amber-600';
+    case 'sent':
+      return 'text-indigo-600';
+    case 'delivered':
+      return 'text-emerald-600';
+    case 'failed':
+      return 'text-rose-600';
+    case 'received':
+      return 'text-cyan-600';
+    default:
+      return 'text-slate-500';
+  }
 }

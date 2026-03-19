@@ -75,6 +75,7 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [pageTransitionKey, setPageTransitionKey] = useState(0);
 
   useEffect(() => {
     if (!auth || !db) return;
@@ -149,10 +150,70 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    setPageTransitionKey((current) => current + 1);
+  }, [activeTab]);
+
+  const renderActiveView = () => {
+    switch (activeTab) {
+      case 'dashboard':
+        return (
+          <ErrorBoundary>
+            <Dashboard user={user} />
+          </ErrorBoundary>
+        );
+      case 'templates':
+        return (
+          <ErrorBoundary>
+            <TemplateManager />
+          </ErrorBoundary>
+        );
+      case 'messages':
+        return (
+          <ErrorBoundary>
+            <MessageTracker />
+          </ErrorBoundary>
+        );
+      case 'devices':
+        return (
+          <ErrorBoundary>
+            <DeviceManager />
+          </ErrorBoundary>
+        );
+      case 'logs':
+        return (
+          <ErrorBoundary>
+            <ActivityLogs />
+          </ErrorBoundary>
+        );
+      case 'users':
+        return (
+          <ErrorBoundary>
+            <UserManager />
+          </ErrorBoundary>
+        );
+      case 'settings':
+        return (
+          <ErrorBoundary>
+            <Settings />
+          </ErrorBoundary>
+        );
+      default:
+        return null;
+    }
+  };
+
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-slate-100">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+      <div className="loading-screen">
+        <div className="loading-orb-shell">
+          <div className="loading-orb"></div>
+          <div className="loading-orb-core"></div>
+        </div>
+        <div className="space-y-2 text-center">
+          <p className="section-kicker">Launching Console</p>
+          <p className="display-heading text-[15px]">Preparing ORBI GATEWAY</p>
+        </div>
       </div>
     );
   }
@@ -160,12 +221,13 @@ export default function App() {
   if (!user) {
     return (
       <div className="h-screen flex items-center justify-center bg-slate-50 p-6">
-        <div className="enterprise-card p-10 max-w-md w-full text-center space-y-8 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-emerald-500"></div>
+        <div className="enterprise-card enterprise-card-strong page-fade-in relative w-full max-w-lg overflow-hidden p-10 text-center space-y-8">
+          <div className="absolute top-0 left-0 w-full h-2 bg-[linear-gradient(90deg,#0f766e,#2563eb,#f59e0b)]"></div>
+          <div className="pointer-events-none absolute inset-x-10 top-0 h-24 rounded-full bg-cyan-100/70 blur-3xl"></div>
           <div className="space-y-4">
             <div className="relative w-48 h-48 mx-auto group">
               {/* Floating Logo */}
-              <div className="relative z-10 w-full h-full transition-transform duration-700 ease-in-out group-hover:scale-110">
+              <div className="motion-float relative z-10 w-full h-full transition-transform duration-700 ease-in-out group-hover:scale-110">
                 <img 
                   src={LOGO_URL} 
                   alt="ORBI Logo" 
@@ -175,8 +237,9 @@ export default function App() {
               </div>
             </div>
             <div className="space-y-2 pt-8">
-              <h1 className="brand-display text-[16px] text-slate-900">ORBI GATEWAY</h1>
-              <p className="text-slate-500 text-sm font-medium px-4">
+              <p className="section-kicker">Operations Console</p>
+              <h1 className="display-heading text-[2.15rem] md:text-[2.6rem]">ORBI Gateway</h1>
+              <p className="text-slate-600 text-sm font-medium px-4 leading-6">
                 Enterprise-grade SMS & Notification infrastructure for modern businesses.
               </p>
             </div>
@@ -185,8 +248,8 @@ export default function App() {
             <button
               onClick={handleLogin}
               disabled={isLoggingIn || !isFirebaseConfigured}
-              className={`w-full bg-slate-900 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-lg shadow-slate-200 active:scale-[0.98] ${
-                isLoggingIn ? 'opacity-70 cursor-not-allowed' : 'hover:bg-slate-800 hover:shadow-xl'
+              className={`enterprise-button-primary w-full ${
+                isLoggingIn ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >
               {isLoggingIn ? (
@@ -215,7 +278,7 @@ export default function App() {
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       {/* Mobile Header */}
-      <div className="md:hidden flex items-center justify-between bg-white border-b border-slate-200 p-4 z-40 fixed top-0 w-full">
+      <div className="md:hidden flex items-center justify-between border-b border-slate-200 bg-white/90 p-4 z-40 fixed top-0 w-full backdrop-blur">
         <div className="flex items-center gap-3">
           <img 
             src={LOGO_URL} 
@@ -223,7 +286,7 @@ export default function App() {
             className="w-8 h-8 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.1)]" 
             referrerPolicy="no-referrer" 
           />
-          <span className="brand-display text-[14px] text-slate-900 leading-none">ORBI GATEWAY</span>
+          <span className="display-heading text-[0.8rem] leading-none">ORBI GATEWAY</span>
         </div>
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -236,13 +299,13 @@ export default function App() {
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 md:hidden"
+          className="page-fade-in fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 w-72 bg-white border-r border-slate-200 flex flex-col shadow-2xl md:shadow-sm z-50 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-300 ease-in-out`}>
+      <aside className={`app-sidebar fixed inset-y-0 left-0 w-72 flex flex-col shadow-2xl md:shadow-sm z-50 transform ${isMobileMenuOpen ? 'translate-x-0 sidebar-slide-in' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-300 ease-in-out`}>
         <div className="p-8 flex items-center justify-between md:justify-start gap-4">
           <div className="flex items-center gap-4">
             <img 
@@ -252,8 +315,8 @@ export default function App() {
               referrerPolicy="no-referrer" 
             />
             <div>
-              <span className="brand-display block text-[14px] text-slate-900 leading-none">ORBI GATEWAY</span>
-              <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">Admin Control Portal</span>
+              <span className="display-heading block text-[0.92rem] leading-none">ORBI GATEWAY</span>
+              <span className="text-[10px] font-black text-cyan-700 uppercase tracking-[0.24em]">Admin Control Portal</span>
             </div>
           </div>
           <button 
@@ -268,10 +331,10 @@ export default function App() {
           <p className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Management</p>
           <button 
             onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+            className={`tab-button ${
               activeTab === 'dashboard' 
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                ? 'tab-button-active' 
+                : 'tab-button-idle'
             }`}
           >
             <LayoutDashboard className="w-5 h-5" />
@@ -281,10 +344,10 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveTab('templates'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+            className={`tab-button ${
               activeTab === 'templates' 
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                ? 'tab-button-active' 
+                : 'tab-button-idle'
             }`}
           >
             <MessageSquare className="w-5 h-5" />
@@ -294,10 +357,10 @@ export default function App() {
           
           <button 
             onClick={() => { setActiveTab('messages'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+            className={`tab-button ${
               activeTab === 'messages' 
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                ? 'tab-button-active' 
+                : 'tab-button-idle'
             }`}
           >
             <Send className="w-5 h-5" />
@@ -307,10 +370,10 @@ export default function App() {
           
           <button 
             onClick={() => { setActiveTab('logs'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+            className={`tab-button ${
               activeTab === 'logs' 
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                ? 'tab-button-active' 
+                : 'tab-button-idle'
             }`}
           >
             <Activity className="w-5 h-5" />
@@ -320,10 +383,10 @@ export default function App() {
 
           <button 
             onClick={() => { setActiveTab('devices'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+            className={`tab-button ${
               activeTab === 'devices' 
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                ? 'tab-button-active' 
+                : 'tab-button-idle'
             }`}
           >
             <Smartphone className="w-5 h-5" />
@@ -336,27 +399,27 @@ export default function App() {
               <div className="pt-6 pb-2">
                 <p className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Administration</p>
               </div>
-              <button 
-                onClick={() => { setActiveTab('users'); setIsMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
-                  activeTab === 'users' 
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
+	              <button 
+	                onClick={() => { setActiveTab('users'); setIsMobileMenuOpen(false); }}
+	                className={`tab-button ${
+	                  activeTab === 'users' 
+	                    ? 'tab-button-active' 
+	                    : 'tab-button-idle'
+	                }`}
+	              >
                 <Users className="w-5 h-5" />
                 Users
                 {activeTab === 'users' && <ChevronRight className="w-4 h-4 ml-auto" />}
               </button>
 
-              <button 
-                onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
-                  activeTab === 'settings' 
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
+	              <button 
+	                onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }}
+	                className={`tab-button ${
+	                  activeTab === 'settings' 
+	                    ? 'tab-button-active' 
+	                    : 'tab-button-idle'
+	                }`}
+	              >
                 <AlertCircle className="w-5 h-5" />
                 Settings
                 {activeTab === 'settings' && <ChevronRight className="w-4 h-4 ml-auto" />}
@@ -366,8 +429,8 @@ export default function App() {
         </nav>
 
         <div className="p-6">
-          <div className="bg-slate-900 rounded-3xl p-4 flex items-center gap-3 shadow-xl">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-500 flex items-center justify-center text-white font-black text-sm overflow-hidden border-2 border-slate-800">
+          <div className="rounded-3xl bg-[linear-gradient(135deg,#0f172a,#15365f)] p-4 flex items-center gap-3 shadow-xl">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-500 flex items-center justify-center text-white font-black text-sm overflow-hidden border-2 border-slate-800">
               {user.photoURL ? (
                 <img src={user.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
@@ -376,7 +439,7 @@ export default function App() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-black text-white truncate">{user.displayName || user.email}</p>
-              <p className="text-[9px] text-indigo-400 uppercase tracking-widest font-black">
+              <p className="text-[9px] text-cyan-300 uppercase tracking-[0.28em] font-black">
                 {userRole === 'admin' ? 'System Admin' : 'Operator'}
               </p>
             </div>
@@ -392,41 +455,9 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto pt-16 md:pt-0">
-        {activeTab === 'dashboard' && (
-          <ErrorBoundary>
-            <Dashboard user={user} />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'templates' && (
-          <ErrorBoundary>
-            <TemplateManager />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'messages' && (
-          <ErrorBoundary>
-            <MessageTracker />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'devices' && (
-          <ErrorBoundary>
-            <DeviceManager />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'logs' && (
-          <ErrorBoundary>
-            <ActivityLogs />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'users' && (
-          <ErrorBoundary>
-            <UserManager />
-          </ErrorBoundary>
-        )}
-        {activeTab === 'settings' && (
-          <ErrorBoundary>
-            <Settings />
-          </ErrorBoundary>
-        )}
+        <div key={pageTransitionKey} className="page-shell">
+          {renderActiveView()}
+        </div>
       </main>
     </div>
   );
