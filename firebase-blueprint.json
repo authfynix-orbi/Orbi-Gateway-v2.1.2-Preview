@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "A user of the ORBI Gateway system.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "role"]
+    },
+    "template": {
+      "title": "Template",
+      "description": "A message template for SMS or notifications.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the template." },
+        "content": { "type": "string", "description": "The message content with placeholders like {{name}}." },
+        "type": { "type": "string", "enum": ["sms", "whatsapp", "email"], "description": "The type of message." },
+        "category": { "type": "string", "enum": ["otp", "transactional", "promotional", "alert"], "description": "The category of the message." },
+        "createdBy": { "type": "string", "description": "The UID of the user who created it." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "content", "type", "category", "createdBy"]
+    },
+    "message": {
+      "title": "Message",
+      "description": "An individual message sent through the gateway.",
+      "type": "object",
+      "properties": {
+        "templateId": { "type": "string" },
+        "recipient": { "type": "string" },
+        "content": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "sent", "failed"] },
+        "category": { "type": "string", "enum": ["otp", "transactional", "promotional", "alert"] },
+        "deviceId": { "type": "string" },
+        "sentAt": { "type": "string", "format": "date-time" },
+        "error": { "type": "string" }
+      },
+      "required": ["recipient", "content", "status", "category"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User profile data."
+    },
+    "/templates/{templateId}": {
+      "schema": "template",
+      "description": "Message templates."
+    },
+    "/messages/{messageId}": {
+      "schema": "message",
+      "description": "Sent and pending messages."
+    }
+  }
+}

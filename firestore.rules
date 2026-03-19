@@ -1,0 +1,293 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - email: string (required)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - role: string (required, ['admin', 'user'])
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: templates
+    // Document ID: {templateId}
+    // Fields:
+    //   - label: string (required)
+    //   - name: string (required)
+    //   - content: string (required)
+    //   - type: string (required, ['sms', 'whatsapp', 'email', 'push'])
+    //   - category: string (required, ['otp', 'transactional', 'promotional', 'alert'])
+    //   - priority: string (required, ['transactional', 'promotional'])
+    //   - createdBy: string (required, userId)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: devices
+    // Document ID: {deviceId}
+    // Fields:
+    //   - deviceId: string (required)
+    //   - model: string (required)
+    //   - status: string (required, ['online', 'offline', 'busy'])
+    //   - lastSeen: timestamp (required)
+    //
+    // Collection: messages
+    // Document ID: {messageId}
+    // Fields:
+    //   - templateId: string (required)
+    //   - recipient: string (required)
+    //   - content: string (required)
+    //   - status: string (required, ['pending', 'sent', 'failed'])
+    //   - category: string (required)
+    //   - deviceId: string (required)
+    //   - sentAt: timestamp (optional)
+    //   - createdBy: string (required, userId)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return isAuthenticatedWithEmail();
+    }
+
+    function isAuthenticatedWithEmail() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && (
+        ('uid' in resource.data && request.auth.uid == resource.data.uid) || 
+        ('createdBy' in resource.data && request.auth.uid == resource.data.createdBy) ||
+        ('userId' in resource.data && request.auth.uid == resource.data.userId) ||
+        ('authorId' in resource.data && request.auth.uid == resource.data.authorId) ||
+        ('ownerUid' in resource.data && request.auth.uid == resource.data.ownerUid)
+      );
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (((request.auth.token.email == "danielzachason25@gmail.com" || request.auth.token.email == "auth.fynix@gmail.com") && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidUser() {
+      return hasOnlyAllowedFields(['email', 'displayName', 'photoURL', 'role', 'createdAt']) &&
+             request.resource.data.email is string && request.resource.data.email.size() > 0 && request.resource.data.email.size() < 255 &&
+             (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() < 255)) &&
+             (!('photoURL' in request.resource.data) || (request.resource.data.photoURL is string && request.resource.data.photoURL.size() < 255)) &&
+             request.resource.data.role in ['admin', 'user'] &&
+             request.resource.data.createdAt is timestamp;
+    }
+
+    function isRoleUnchanged() {
+      return !('role' in request.resource.data) || 
+             request.resource.data.role == resource.data.role;
+    }
+
+    // User Rules
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser() && 
+                    (request.resource.data.role == 'user' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser() && 
+                    ((isOwner(userId) && isRoleUnchanged()) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    function isUidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+
+    function isCreatedByUnchanged() {
+      return !('createdBy' in request.resource.data) || request.resource.data.createdBy == resource.data.createdBy;
+    }
+
+    function isValidTemplate() {
+      return hasOnlyAllowedFields(['name', 'channel', 'language', 'subject', 'body', 'messageType', 'createdBy', 'createdAt']) &&
+             request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() < 255 &&
+             request.resource.data.channel in ['sms', 'whatsapp', 'email', 'push'] &&
+             request.resource.data.language is string && request.resource.data.language.size() > 0 && request.resource.data.language.size() < 10 &&
+             (!('subject' in request.resource.data) || (request.resource.data.subject is string && request.resource.data.subject.size() < 255)) &&
+             request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() < 1000 &&
+             request.resource.data.messageType in ['transactional', 'promotional'] &&
+             request.resource.data.createdBy is string && request.resource.data.createdBy.size() > 0 && request.resource.data.createdBy.size() < 255 &&
+             request.resource.data.createdAt is timestamp;
+    }
+
+    function isValidMessage() {
+      return hasOnlyAllowedFields([
+               'templateName',
+               'recipient',
+               'body',
+               'status',
+               'channel',
+               'deviceId',
+               'timestamp',
+               'createdBy',
+               'createdAt',
+               'requestId',
+               'messageType',
+               'error',
+               'updatedAt',
+               'deliveredAt',
+               'pushedAt',
+               'retryCount',
+               'source'
+             ]) &&
+             (!('templateName' in request.resource.data) || (request.resource.data.templateName is string && request.resource.data.templateName.size() > 0 && request.resource.data.templateName.size() < 255)) &&
+             request.resource.data.recipient is string && request.resource.data.recipient.size() > 0 && request.resource.data.recipient.size() < 255 &&
+             request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() < 5000 &&
+             request.resource.data.status in ['pending', 'queued', 'processing', 'sending', 'sent', 'delivered', 'failed'] &&
+             request.resource.data.channel in ['sms', 'whatsapp', 'email', 'push'] &&
+             (!('deviceId' in request.resource.data) || (request.resource.data.deviceId is string && request.resource.data.deviceId.size() > 0 && request.resource.data.deviceId.size() < 255)) &&
+             request.resource.data.createdBy is string && request.resource.data.createdBy.size() > 0 && request.resource.data.createdBy.size() < 255 &&
+             (!('requestId' in request.resource.data) || (request.resource.data.requestId is string && request.resource.data.requestId.size() > 0 && request.resource.data.requestId.size() < 255)) &&
+             (!('messageType' in request.resource.data) || request.resource.data.messageType in ['transactional', 'promotional']) &&
+             (!('error' in request.resource.data) || request.resource.data.error is string) &&
+             (!('retryCount' in request.resource.data) || request.resource.data.retryCount is int) &&
+             (!('source' in request.resource.data) || (request.resource.data.source is string && request.resource.data.source.size() > 0 && request.resource.data.source.size() < 255)) &&
+             (!('timestamp' in request.resource.data) || request.resource.data.timestamp is timestamp) &&
+             (!('createdAt' in request.resource.data) || request.resource.data.createdAt is timestamp) &&
+             (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt is timestamp) &&
+             (!('deliveredAt' in request.resource.data) || request.resource.data.deliveredAt is timestamp) &&
+             (!('pushedAt' in request.resource.data) || request.resource.data.pushedAt is timestamp);
+    }
+
+    function isValidDevice() {
+      return hasOnlyAllowedFields([
+               'name',
+               'model',
+               'androidVersion',
+               'batteryLevel',
+               'status',
+               'lastSeen',
+               'ownerUid',
+               'updatedAt',
+               'last_status_change',
+               'offline_reason'
+             ]) &&
+             request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() < 255 &&
+             request.resource.data.model is string && request.resource.data.model.size() > 0 && request.resource.data.model.size() < 255 &&
+             request.resource.data.androidVersion is string && request.resource.data.androidVersion.size() > 0 && request.resource.data.androidVersion.size() < 255 &&
+             request.resource.data.batteryLevel is number &&
+             request.resource.data.status in ['online', 'offline', 'busy'] &&
+             request.resource.data.lastSeen is timestamp &&
+             request.resource.data.ownerUid is string && request.resource.data.ownerUid.size() > 0 && request.resource.data.ownerUid.size() < 255 &&
+             (!('updatedAt' in request.resource.data) || request.resource.data.updatedAt is timestamp) &&
+             (!('last_status_change' in request.resource.data) || request.resource.data.last_status_change is timestamp) &&
+             (!('offline_reason' in request.resource.data) || request.resource.data.offline_reason is string);
+    }
+
+    function isDeviceOwnerUnchanged() {
+      return !('ownerUid' in request.resource.data) || request.resource.data.ownerUid == resource.data.ownerUid;
+    }
+
+    function isValidApiCredential() {
+      return hasOnlyAllowedFields([
+               'ownerUid',
+               'ownerEmail',
+               'name',
+               'keyPrefix',
+               'keyHash',
+               'status',
+               'scopes',
+               'createdAt',
+               'lastUsedAt',
+               'revokedAt'
+             ]) &&
+             request.resource.data.ownerUid is string && request.resource.data.ownerUid.size() > 0 && request.resource.data.ownerUid.size() < 255 &&
+             (!('ownerEmail' in request.resource.data) || (request.resource.data.ownerEmail is string && request.resource.data.ownerEmail.size() > 0 && request.resource.data.ownerEmail.size() < 255)) &&
+             request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() < 255 &&
+             request.resource.data.keyPrefix is string && request.resource.data.keyPrefix.size() > 0 && request.resource.data.keyPrefix.size() < 255 &&
+             request.resource.data.keyHash is string && request.resource.data.keyHash.size() > 0 && request.resource.data.keyHash.size() < 255 &&
+             request.resource.data.status in ['active', 'revoked', 'inactive'] &&
+             request.resource.data.scopes is list &&
+             request.resource.data.createdAt is timestamp &&
+             (!('lastUsedAt' in request.resource.data) || request.resource.data.lastUsedAt is timestamp) &&
+             (!('revokedAt' in request.resource.data) || request.resource.data.revokedAt is timestamp);
+    }
+
+    function isApiCredentialCoreUnchanged() {
+      return request.resource.data.ownerUid == resource.data.ownerUid &&
+             request.resource.data.keyHash == resource.data.keyHash &&
+             request.resource.data.keyPrefix == resource.data.keyPrefix &&
+             request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function isValidMessageRequestIndex() {
+      return hasOnlyAllowedFields(['ownerUid', 'requestId', 'messageId', 'createdAt']) &&
+             request.resource.data.ownerUid is string && request.resource.data.ownerUid.size() > 0 && request.resource.data.ownerUid.size() < 255 &&
+             request.resource.data.requestId is string && request.resource.data.requestId.size() > 0 && request.resource.data.requestId.size() < 255 &&
+             request.resource.data.messageId is string && request.resource.data.messageId.size() > 0 && request.resource.data.messageId.size() < 255 &&
+             request.resource.data.createdAt is timestamp;
+    }
+
+    // Template Rules
+    match /message_templates/{templateId} {
+      allow read: if isAuthenticated() && (isAdmin() || isDocOwner());
+      allow create: if isAuthenticated() && isValidTemplate() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAuthenticated() && isValidTemplate() && isCreatedByUnchanged() && (isAdmin() || isDocOwner());
+      allow delete: if isAuthenticated() && (isAdmin() || isDocOwner());
+    }
+
+    // Device Rules
+    match /devices/{deviceId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
+      allow create: if isAuthenticated() && isValidDevice() && (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidDevice() && isDeviceOwnerUnchanged() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+    }
+
+    // Activity Log Rules
+    match /activity_logs/{logId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
+      allow create: if false; // Only server can create
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // Message Rules
+    match /message_logs/{messageId} {
+      allow read: if isAuthenticated() && (isAdmin() || isDocOwner());
+      allow create: if isAuthenticated() && isValidMessage() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAuthenticated() && isValidMessage() && isCreatedByUnchanged() && (isAdmin() || isDocOwner());
+      allow delete: if isAuthenticated() && (isAdmin() || isDocOwner());
+    }
+
+    // API Credential Rules
+    match /api_credentials/{credentialId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
+      allow create: if isAuthenticated() && isValidApiCredential() &&
+                    (request.resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow update: if isAuthenticated() && isValidApiCredential() && isApiCredentialCoreUnchanged() &&
+                    (isAdmin() || resource.data.ownerUid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // Idempotency Index Rules
+    match /message_request_index/{indexId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.ownerUid == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /device_pairings/{pairingId} {
+      allow read, create, update, delete: if false;
+    }
+  }
+}

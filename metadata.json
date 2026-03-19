@@ -1,0 +1,5 @@
+{
+  "name": "ORBI Gateway Redis on Firebase v1.0.3",
+  "description": "A secure, scalable SMS gateway system for ORBI infrastructure, using Android devices as SMS senders.",
+  "requestFramePermissions": []
+}
