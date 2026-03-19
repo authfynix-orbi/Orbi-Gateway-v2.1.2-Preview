@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "2.0.2-fixed",
+  "version": "2.1.1-stable-preview",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

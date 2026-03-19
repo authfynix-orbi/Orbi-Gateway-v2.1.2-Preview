@@ -225,7 +225,7 @@ export default function App() {
           <div className="absolute top-0 left-0 w-full h-2 bg-[linear-gradient(90deg,#0f766e,#2563eb,#f59e0b)]"></div>
           <div className="pointer-events-none absolute inset-x-10 top-0 h-24 rounded-full bg-cyan-100/70 blur-3xl"></div>
           <div className="space-y-4">
-            <div className="relative w-48 h-48 mx-auto group">
+            <div className="relative h-60 w-60 mx-auto group md:h-72 md:w-72">
               {/* Floating Logo */}
               <div className="motion-float relative z-10 w-full h-full transition-transform duration-700 ease-in-out group-hover:scale-110">
                 <img 
@@ -236,7 +236,7 @@ export default function App() {
                 />
               </div>
             </div>
-            <div className="space-y-2 pt-8">
+            <div className="space-y-2 pt-6">
               <p className="section-kicker">Operations Console</p>
               <h1 className="display-heading text-[2.15rem] md:text-[2.6rem]">ORBI Gateway</h1>
               <p className="text-slate-600 text-sm font-medium px-4 leading-6">
@@ -283,7 +283,7 @@ export default function App() {
           <img 
             src={LOGO_URL} 
             alt="Logo" 
-            className="w-8 h-8 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.1)]" 
+            className="h-11 w-11 object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.12)]" 
             referrerPolicy="no-referrer" 
           />
           <span className="display-heading text-[0.8rem] leading-none">ORBI GATEWAY</span>
@@ -311,7 +311,7 @@ export default function App() {
             <img 
               src={LOGO_URL} 
               alt="Logo" 
-              className="w-12 h-12 object-contain drop-shadow-[0_4px_6px_rgba(0,0,0,0.1)]" 
+              className="h-16 w-16 object-contain drop-shadow-[0_10px_18px_rgba(0,0,0,0.12)]" 
               referrerPolicy="no-referrer" 
             />
             <div>

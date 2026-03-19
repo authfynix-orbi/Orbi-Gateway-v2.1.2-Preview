@@ -43,6 +43,8 @@ interface MessageLog {
   deviceId?: string;
 }
 
+type MessageLane = 'all' | 'jobs' | 'forwarded_inbox';
+
 interface Template {
   id: string;
   name: string;
@@ -56,6 +58,7 @@ const statusOptions: MessageStatus[] = ['all', 'pending', 'queued', 'processing'
 export default function MessageTracker() {
   const [messages, setMessages] = useState<MessageLog[]>([]);
   const [filter, setFilter] = useState<MessageStatus>('all');
+  const [laneFilter, setLaneFilter] = useState<MessageLane>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMessage, setSelectedMessage] = useState<MessageLog | null>(null);
   const [isResending, setIsResending] = useState<string | null>(null);
@@ -139,6 +142,12 @@ export default function MessageTracker() {
     return messages.filter((message) => {
       const filterMatch = filter === 'all' || message.status === filter;
       if (!filterMatch) return false;
+      const isInbound = message.direction === 'inbound' || message.status === 'received';
+      const laneMatch =
+        laneFilter === 'all' ||
+        (laneFilter === 'forwarded_inbox' && isInbound) ||
+        (laneFilter === 'jobs' && !isInbound);
+      if (!laneMatch) return false;
       if (!normalizedSearch) return true;
       const haystack = [
         message.id,
@@ -155,7 +164,7 @@ export default function MessageTracker() {
         .toLowerCase();
       return haystack.includes(normalizedSearch);
     });
-  }, [messages, filter, searchQuery]);
+  }, [messages, filter, laneFilter, searchQuery]);
 
   const summary = useMemo(
     () => ({
@@ -163,6 +172,7 @@ export default function MessageTracker() {
       queued: filteredMessages.filter((entry) => entry.status === 'queued').length,
       delivered: filteredMessages.filter((entry) => entry.status === 'delivered').length,
       received: filteredMessages.filter((entry) => entry.status === 'received' || entry.direction === 'inbound').length,
+      jobs: filteredMessages.filter((entry) => entry.status !== 'received' && entry.direction !== 'inbound').length,
     }),
     [filteredMessages],
   );
@@ -342,7 +352,7 @@ export default function MessageTracker() {
             <p className="section-kicker">Delivery Control</p>
             <h2 className="section-heading">Message Tracking</h2>
             <p className="section-subcopy">
-              Review outbound queue state, received inbox traffic, and message body details from one cleaner command surface.
+              Review outbound job traffic and forwarded inbox traffic with a clear visual split so operators can scan the queue faster.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -369,6 +379,7 @@ export default function MessageTracker() {
 
         <div className="stat-grid">
           <MetricCard label="Visible" value={summary.total.toString()} tone="slate" />
+          <MetricCard label="Jobs" value={summary.jobs.toString()} tone="indigo" />
           <MetricCard label="Queued" value={summary.queued.toString()} tone="amber" />
           <MetricCard label="Delivered" value={summary.delivered.toString()} tone="emerald" />
           <MetricCard label="Inbox" value={summary.received.toString()} tone="violet" />
@@ -386,6 +397,17 @@ export default function MessageTracker() {
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm font-medium focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/5"
             />
           </div>
+          <select
+            id="message-lane-filter"
+            name="messageLaneFilter"
+            value={laneFilter}
+            onChange={(event) => setLaneFilter(event.target.value as MessageLane)}
+            className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold"
+          >
+            <option value="all">All Traffic</option>
+            <option value="jobs">Job Messages</option>
+            <option value="forwarded_inbox">Forwarded Inbox</option>
+          </select>
           <select
             id="message-status-filter"
             name="messageStatusFilter"
@@ -413,7 +435,11 @@ export default function MessageTracker() {
                 return (
                 <div
                   key={message.id}
-                  className="rounded-[24px] border border-transparent px-3 py-4 transition-colors hover:border-slate-200 hover:bg-slate-50/80"
+                  className={`rounded-[24px] border px-3 py-4 transition-colors ${
+                    isInbound
+                      ? 'border-cyan-200/90 bg-[linear-gradient(135deg,rgba(236,254,255,0.92),rgba(247,250,255,0.98))] shadow-[0_10px_28px_rgba(8,145,178,0.08)] hover:border-cyan-300'
+                      : 'border-transparent hover:border-slate-200 hover:bg-slate-50/80'
+                  }`}
                 >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex cursor-pointer items-start gap-4 xl:flex-1" onClick={() => setSelectedMessage(message)}>
@@ -431,12 +457,14 @@ export default function MessageTracker() {
                             {isInbound ? (message.sender || message.recipient || 'Unknown Sender') : (message.recipient || 'Unknown Recipient')}
                           </p>
                           <span className={`tone-chip ${statusToneChip(message.status)}`}>{message.status}</span>
-                          {isInbound ? <span className="enterprise-pill enterprise-pill-neutral">Inbox</span> : null}
+                          {isInbound ? <span className="enterprise-pill border-cyan-200 bg-cyan-50 text-cyan-700">Forwarded Inbox</span> : null}
+                          {!isInbound ? <span className="enterprise-pill enterprise-pill-neutral">Job Message</span> : null}
                           {message.retryCount ? <span className="enterprise-pill enterprise-pill-warning">Retries: {message.retryCount}</span> : null}
                           {message.channel ? <span className="enterprise-pill enterprise-pill-neutral uppercase">{message.channel}</span> : null}
                         </div>
                         <p className="mt-1 line-clamp-2 text-[13px] font-medium leading-6 text-slate-600">{message.body || 'No content'}</p>
                         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium text-slate-500">
+                          {isInbound ? <span className="enterprise-pill border-cyan-200 bg-white text-cyan-700">Inbound Relay</span> : null}
                           <span className="enterprise-pill enterprise-pill-neutral">Created: {formatTimestamp(message.timestamp)}</span>
                           {message.deliveredAt ? (
                             <span className="enterprise-pill enterprise-pill-neutral">Delivered: {formatTimestamp(message.deliveredAt)}</span>
@@ -520,6 +548,11 @@ export default function MessageTracker() {
                     }
                   />
                   <DetailField label="Status" value={selectedMessage.status} tone={statusTextTone(selectedMessage.status)} />
+                  <DetailField
+                    label="Traffic Type"
+                    value={selectedMessage.direction === 'inbound' || selectedMessage.status === 'received' ? 'Forwarded Inbox' : 'Job Message'}
+                    tone={selectedMessage.direction === 'inbound' || selectedMessage.status === 'received' ? 'text-cyan-700' : 'text-indigo-600'}
+                  />
                   <DetailField label="Direction" value={selectedMessage.direction || (selectedMessage.status === 'received' ? 'inbound' : 'outbound')} />
                   <DetailField label="Created" value={formatTimestamp(selectedMessage.timestamp)} />
                   <DetailField label="Delivered" value={formatTimestamp(selectedMessage.deliveredAt)} />
@@ -663,9 +696,10 @@ export default function MessageTracker() {
   );
 }
 
-function MetricCard({ label, value, tone }: { label: string; value: string; tone: 'slate' | 'amber' | 'emerald' | 'violet' }) {
+function MetricCard({ label, value, tone }: { label: string; value: string; tone: 'slate' | 'amber' | 'emerald' | 'violet' | 'indigo' }) {
   const toneMap: Record<string, string> = {
     slate: 'border-slate-200 bg-slate-50 text-slate-800',
+    indigo: 'border-indigo-200 bg-indigo-50 text-indigo-800',
     amber: 'border-amber-200 bg-amber-50 text-amber-800',
     emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     violet: 'border-violet-200 bg-violet-50 text-violet-800',
