@@ -24,7 +24,9 @@ interface LiveDeviceStatus {
   lastHeartbeatAt: string | null;
   heartbeatAgeMs: number | null;
   heartbeatAgeSeconds: number | null;
+  lastPersistedAt: string | null;
   batteryLevel: number | null;
+  totalMessagesSent: number | null;
 }
 
 export default function DeviceManager() {
@@ -108,6 +110,42 @@ export default function DeviceManager() {
 
   const getDisplayedBatteryLevel = (device: Device) =>
     liveStatusByDevice[device.id]?.batteryLevel ?? device.batteryLevel ?? 0;
+
+  const getDispatchReadiness = (device: Device) => {
+    const liveStatus = liveStatusByDevice[device.id];
+    if (liveStatus?.liveConnected && liveStatus.heartbeatAlive) {
+      return {
+        label: 'Queue ready',
+        tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      };
+    }
+    if (liveStatus?.heartbeatAlive) {
+      return {
+        label: 'Wake recommended',
+        tone: 'bg-amber-50 text-amber-700 border-amber-200',
+      };
+    }
+    return {
+      label: 'Recovery required',
+      tone: 'bg-rose-50 text-rose-700 border-rose-200',
+    };
+  };
+
+  const getTelemetryPills = (device: Device) => {
+    const liveStatus = liveStatusByDevice[device.id];
+    return [
+      liveStatus?.liveConnected ? 'Socket live' : 'Socket idle',
+      liveStatus?.heartbeatAlive
+        ? `Heartbeat ${liveStatus.heartbeatAgeSeconds ?? 0}s`
+        : 'Heartbeat stale',
+      liveStatus?.lastPersistedAt
+        ? `Persisted ${new Date(liveStatus.lastPersistedAt).toLocaleTimeString()}`
+        : 'Persisted pending',
+    ];
+  };
+
+  const getDeviceSentTotal = (device: Device) =>
+    liveStatusByDevice[device.id]?.totalMessagesSent ?? 0;
 
   const activeOnlineCount = devices.filter(d => getDerivedStatus(d) === 'online').length;
 
@@ -325,8 +363,8 @@ export default function DeviceManager() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-6 relative z-10">
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+              <div className="grid grid-cols-2 gap-4 mb-4 relative z-10">
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                   <div className="flex items-center gap-2 mb-1">
                     <Battery className={`w-3.5 h-3.5 ${getBatteryColor(device.batteryLevel || 0)}`} />
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Battery</span>
@@ -340,6 +378,38 @@ export default function DeviceManager() {
                   </div>
                   <p className="text-sm font-black text-slate-900">v{device.androidVersion || 'Unknown'}</p>
                 </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sent</span>
+                  </div>
+                  <p className="text-sm font-black text-slate-900">{getDeviceSentTotal(device).toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Shield className="w-3.5 h-3.5 text-cyan-500" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Telemetry</span>
+                  </div>
+                  <p className="text-sm font-black text-slate-900">
+                    {liveStatusByDevice[device.id]?.liveConnected ? 'Realtime' : 'Persisted'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-6 flex flex-wrap gap-2 relative z-10">
+                <span
+                  className={`enterprise-pill border ${getDispatchReadiness(device).tone}`}
+                >
+                  {getDispatchReadiness(device).label}
+                </span>
+                {getTelemetryPills(device).map((pill) => (
+                  <span
+                    key={pill}
+                    className="enterprise-pill enterprise-pill-neutral border-slate-200 bg-slate-50 text-slate-600"
+                  >
+                    {pill}
+                  </span>
+                ))}
               </div>
 
               <div className="flex items-center justify-between pt-4 border-t border-slate-100 relative z-10">

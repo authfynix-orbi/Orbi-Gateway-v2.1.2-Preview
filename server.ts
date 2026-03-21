@@ -579,10 +579,23 @@ async function startServer() {
       }
 
       const uniqueIds = Array.from(new Set(requestedIds)).slice(0, 250);
+      const adminApp = getFirebaseAdmin();
+      const db = adminApp?.firestore();
+      const devices = await Promise.all(
+        uniqueIds.map(async (deviceId) => {
+          if (db) {
+            try {
+              await getDeviceSentCount(db, deviceId);
+            } catch (error) {
+              console.error(`Failed to refresh sent count for ${deviceId}:`, error);
+            }
+          }
+          return buildLiveDeviceStatus(deviceId, connectedDevices.has(deviceId));
+        }),
+      );
+
       return res.json({
-        devices: uniqueIds.map((deviceId) =>
-          buildLiveDeviceStatus(deviceId, connectedDevices.has(deviceId)),
-        ),
+        devices,
         generatedAt: new Date().toISOString(),
         heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS,
       });
