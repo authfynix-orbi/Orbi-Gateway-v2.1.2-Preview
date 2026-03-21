@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, Timestamp, where, getDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { handleFirestoreError, OperationType } from '../firestoreUtils';
+import ConfirmationDialog from './ConfirmationDialog';
 import { Smartphone, Battery, Signal, Clock, Trash2, Shield, AlertCircle, CheckCircle2, X, Download, Link as LinkIcon, FileText, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -41,6 +42,8 @@ export default function DeviceManager() {
   const [pairingUrl, setPairingUrl] = useState(window.location.origin);
   const [pairingOwnerUid, setPairingOwnerUid] = useState(auth.currentUser?.uid || '');
   const [pairingCode, setPairingCode] = useState('');
+  const [deviceToDelete, setDeviceToDelete] = useState<Device | null>(null);
+  const [isDeletingDevice, setIsDeletingDevice] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -283,15 +286,17 @@ export default function DeviceManager() {
     return 'text-red-500';
   };
 
-  const handleDeleteDevice = async (deviceId: string) => {
-    if (!db || !auth.currentUser) return;
-    
-    if (window.confirm('Are you sure you want to delete this device? This action cannot be undone.')) {
-      try {
-        await deleteDoc(doc(db, 'devices', deviceId));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `devices/${deviceId}`);
-      }
+  const handleDeleteDevice = async () => {
+    if (!db || !auth.currentUser || !deviceToDelete) return;
+
+    setIsDeletingDevice(true);
+    try {
+      await deleteDoc(doc(db, 'devices', deviceToDelete.id));
+      setDeviceToDelete(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `devices/${deviceToDelete.id}`);
+    } finally {
+      setIsDeletingDevice(false);
     }
   };
 
@@ -424,7 +429,7 @@ export default function DeviceManager() {
                     <Shield className="w-4 h-4" />
                   </button>
                   <button 
-                    onClick={() => handleDeleteDevice(device.id)}
+                    onClick={() => setDeviceToDelete(device)}
                     className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -435,6 +440,23 @@ export default function DeviceManager() {
           ))}
         </div>
       )}
+
+      <ConfirmationDialog
+        isOpen={deviceToDelete != null}
+        title="Remove gateway device?"
+        message={`This will remove ${deviceToDelete?.name || deviceToDelete?.model || 'this device'} from the console.`}
+        confirmLabel="Delete Device"
+        cancelLabel="Keep Device"
+        onConfirm={handleDeleteDevice}
+        onCancel={() => setDeviceToDelete(null)}
+        isProcessing={isDeletingDevice}
+        tone="danger"
+        effects={[
+          'Deletes the device record from the dashboard immediately.',
+          'Prevents this gateway from being selected for new message assignments.',
+          'Does not uninstall the Android app from the physical phone.',
+        ]}
+      />
 
       <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full -mr-48 -mt-48 blur-3xl"></div>

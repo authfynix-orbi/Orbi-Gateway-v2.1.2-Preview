@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { handleFirestoreError, OperationType } from '../firestoreUtils';
+import ConfirmationDialog from './ConfirmationDialog';
 import { 
   Plus, 
   Trash2, 
@@ -148,6 +149,7 @@ export default function TemplateManager() {
   // Delete Confirmation State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isSeedConfirmOpen, setIsSeedConfirmOpen] = useState(false);
   const [templateToDelete, setTemplateToDelete] = useState<Template | null>(null);
 
   // Selection State
@@ -156,6 +158,7 @@ export default function TemplateManager() {
 
   // Status/Feedback State
   const [feedback, setFeedback] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const [isSeedingSamples, setIsSeedingSamples] = useState(false);
 
   useEffect(() => {
     if (feedback) {
@@ -355,6 +358,7 @@ export default function TemplateManager() {
       }
     ];
 
+    setIsSeedingSamples(true);
     try {
       const batch = writeBatch(db);
       samples.forEach(sample => {
@@ -366,10 +370,13 @@ export default function TemplateManager() {
         });
       });
       await batch.commit();
+      setIsSeedConfirmOpen(false);
       setFeedback({ message: "Successfully seeded sample templates!", type: 'success' });
     } catch (error) {
       console.error("Error seeding samples:", error);
       setFeedback({ message: "Failed to seed samples", type: 'error' });
+    } finally {
+      setIsSeedingSamples(false);
     }
   };
 
@@ -537,7 +544,7 @@ export default function TemplateManager() {
             <span className="hidden sm:inline">Export</span>
           </button>
           <button
-            onClick={handleSeedSample}
+            onClick={() => setIsSeedConfirmOpen(true)}
             className="flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2.5 rounded-2xl font-bold transition-all border border-indigo-100 active:scale-95"
             title="Seed Sample Templates"
           >
@@ -589,6 +596,23 @@ export default function TemplateManager() {
           </div>
         </div>
       )}
+
+      <ConfirmationDialog
+        isOpen={isSeedConfirmOpen}
+        title="Seed sample templates?"
+        message="This will insert a starter set of ORBI sample templates into your workspace so the team can test flows and preview messaging formats quickly."
+        confirmLabel="Seed Samples"
+        cancelLabel="Not now"
+        onConfirm={handleSeedSample}
+        onCancel={() => setIsSeedConfirmOpen(false)}
+        isProcessing={isSeedingSamples}
+        tone="primary"
+        effects={[
+          'Adds 4 sample templates covering SMS, email, and push channels.',
+          'Creates new template records under your current account ownership.',
+          'Does not remove or overwrite your existing templates.',
+        ]}
+      />
 
       {/* Controls Section */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between enterprise-card p-3 shadow-sm">

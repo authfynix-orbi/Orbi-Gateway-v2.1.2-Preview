@@ -45,6 +45,12 @@ type ChartPoint = {
   failed: number;
 };
 
+type LiveDeviceStatus = {
+  deviceId: string;
+  status: 'online' | 'offline' | 'busy';
+  heartbeatAlive: boolean;
+};
+
 const initialChartData: ChartPoint[] = [
   { name: 'Mon', sent: 0, failed: 0 },
   { name: 'Tue', sent: 0, failed: 0 },
@@ -76,6 +82,7 @@ export default function Dashboard({ user }: { user: User | null }) {
   });
   const [channelStats, setChannelStats] = useState<ChannelStat[]>(initialChannelStats);
   const [chartData, setChartData] = useState<ChartPoint[]>(initialChartData);
+  const [dashboardDeviceIds, setDashboardDeviceIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!db || !user) {
@@ -182,8 +189,8 @@ export default function Dashboard({ user }: { user: User | null }) {
         unsubscribeDevices = onSnapshot(
           devicesQuery,
           (snapshot) => {
-            const activeDevices = snapshot.docs.filter((deviceDoc) => deviceDoc.data().status === 'online').length;
-            setStats((prev) => ({ ...prev, activeDevices }));
+            const deviceIds = snapshot.docs.map((deviceDoc) => deviceDoc.id).filter(Boolean);
+            setDashboardDeviceIds(deviceIds);
           },
           (error) => handleFirestoreError(error, OperationType.GET, 'devices'),
         );
@@ -199,6 +206,53 @@ export default function Dashboard({ user }: { user: User | null }) {
       unsubscribeDevices?.();
     };
   }, [user]);
+
+  useEffect(() => {
+    if (!user || dashboardDeviceIds.length === 0) {
+      setStats((prev) => ({ ...prev, activeDevices: 0 }));
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchLiveGatewayCount = async () => {
+      try {
+        const token = await user.getIdToken();
+        if (!token || cancelled) return;
+
+        const params = new URLSearchParams({
+          deviceIds: dashboardDeviceIds.join(','),
+        });
+        const response = await fetch(`/api/devices/live-status?${params.toString()}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        if (cancelled) return;
+
+        const devices = Array.isArray(payload.devices) ? (payload.devices as LiveDeviceStatus[]) : [];
+        const activeDevices = devices.filter((device) => device.heartbeatAlive && device.status === 'online').length;
+        setStats((prev) => ({ ...prev, activeDevices }));
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load dashboard live gateway count:', error);
+        }
+      }
+    };
+
+    fetchLiveGatewayCount();
+    const interval = setInterval(fetchLiveGatewayCount, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user, dashboardDeviceIds]);
 
   const throughputLabel =
     stats.totalMessages === 0 ? 'No throughput yet' : `${stats.deliveredMessages} delivered across current dataset`;
