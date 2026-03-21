@@ -534,6 +534,32 @@ async function getUserRole(db: any, uid: string) {
   return userDoc.data()?.role || "user";
 }
 
+async function deleteCollectionInBatches(
+  db: FirebaseFirestore.Firestore,
+  collectionName: string,
+  batchSize = 200,
+) {
+  let deleted = 0;
+
+  while (true) {
+    const snapshot = await db.collection(collectionName).limit(batchSize).get();
+    if (snapshot.empty) {
+      return deleted;
+    }
+
+    const batch = db.batch();
+    for (const doc of snapshot.docs) {
+      batch.delete(doc.ref);
+    }
+    await batch.commit();
+    deleted += snapshot.size;
+
+    if (snapshot.size < batchSize) {
+      return deleted;
+    }
+  }
+}
+
 function hashApiKey(rawKey: string) {
   return crypto.createHash("sha256").update(rawKey).digest("hex");
 }
@@ -965,6 +991,82 @@ async function startServer() {
     } catch (error) {
       console.error("Failed to revoke API credential:", error);
       return res.status(500).json({ error: "Failed to revoke API credential" });
+    }
+  });
+
+  app.post("/api/admin/reset", requireFirebaseUser, async (req: any, res) => {
+    try {
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(500).json({ error: "Firebase Admin is not configured" });
+      }
+
+      const db = adminApp.firestore();
+      const requesterUid = req.firebaseUser.uid;
+      const role = await getUserRole(db, requesterUid);
+      if (role !== "admin") {
+        return res.status(403).json({ error: "Only admins can reset the gateway server" });
+      }
+
+      const collectionsToDelete = [
+        "message_logs",
+        "devices",
+        "message_templates",
+        "api_credentials",
+        "device_pairings",
+        "message_request_index",
+      ] as const;
+      const deletedCounts: Record<string, number> = {};
+
+      logTrace("admin.reset.start", {
+        requesterUid,
+        collections: collectionsToDelete,
+      });
+
+      for (const collectionName of collectionsToDelete) {
+        const deleted = await deleteCollectionInBatches(db, collectionName);
+        deletedCounts[collectionName] = deleted;
+      }
+
+      for (const [connectedDeviceId, socket] of connectedDevices.entries()) {
+        try {
+          socket.close(1012, "Gateway reset");
+        } catch (_) {
+          // Ignore close failures during reset.
+        }
+        connectedDevices.delete(connectedDeviceId);
+      }
+      lastHeartbeat.clear();
+      lastHeartbeatWrite.clear();
+      deviceSentCountCache.clear();
+      lastPersistedDeviceState.clear();
+
+      await db.collection("system_meta").doc("gateway_reset_state").set({
+        lastResetAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastResetBy: requesterUid,
+        serviceVersion: SERVICE_VERSION,
+        deletedCounts,
+      });
+
+      const totalDeleted = Object.values(deletedCounts).reduce((sum, value) => sum + value, 0);
+      logTrace("admin.reset.complete", {
+        requesterUid,
+        totalDeleted,
+        deletedCounts,
+      });
+
+      return res.json({
+        success: true,
+        totalDeleted,
+        deletedCounts,
+        recreated: ["system_meta/gateway_reset_state"],
+        message: "Gateway reset completed successfully",
+      });
+    } catch (error) {
+      logErrorTrace("admin.reset.failed", error, {
+        requesterUid: req.firebaseUser?.uid || null,
+      });
+      return res.status(500).json({ error: "Failed to reset gateway server" });
     }
   });
 
@@ -2196,6 +2298,7 @@ async function startServer() {
         // Handle identification/heartbeat to get deviceId
         if (data.type === "heartbeat" || data.task === "DEVICE_INFO") {
           const newDeviceId = data.deviceId;
+          const incomingOwnerUid = normalizeOptionalString(data.ownerUid);
           
           if (!newDeviceId) {
             console.error("[WebSocket] Received message without deviceId");
@@ -2209,7 +2312,7 @@ async function startServer() {
             const deviceRef = adminApp?.firestore().collection("devices").doc(newDeviceId);
             const existingDeviceDoc = deviceRef ? await deviceRef.get() : null;
             const storedOwnerUid = existingDeviceDoc?.exists ? existingDeviceDoc.data()?.ownerUid || null : null;
-            ownerUid = storedOwnerUid || ownerUid;
+            ownerUid = storedOwnerUid || incomingOwnerUid || ownerUid;
             
             console.log(`[WebSocket] Device identified: ${deviceId} (${model})`);
             connectedDevices.set(deviceId, ws);
@@ -2227,9 +2330,10 @@ async function startServer() {
               const deviceRef = db.collection("devices").doc(deviceId);
               const existingDeviceDoc = await deviceRef.get();
               const storedOwnerUid = existingDeviceDoc.exists ? existingDeviceDoc.data()?.ownerUid || null : null;
-              if (storedOwnerUid) {
-                ownerUid = storedOwnerUid;
-                deviceData.ownerUid = storedOwnerUid;
+              const resolvedOwnerUid = storedOwnerUid || incomingOwnerUid || ownerUid;
+              if (resolvedOwnerUid) {
+                ownerUid = resolvedOwnerUid;
+                deviceData.ownerUid = resolvedOwnerUid;
               }
 
               persistDevicePresence(db, deviceId, deviceData, { force: true })
@@ -2243,6 +2347,10 @@ async function startServer() {
             ws.send(JSON.stringify({ type: "heartbeat_ack" }));
             
             if (adminApp) {
+              const heartbeatOwnerUid = incomingOwnerUid || ownerUid;
+              if (heartbeatOwnerUid && heartbeatOwnerUid !== ownerUid) {
+                ownerUid = heartbeatOwnerUid;
+              }
               persistDevicePresence(
                 adminApp.firestore(),
                 deviceId,
@@ -2251,7 +2359,7 @@ async function startServer() {
                   batteryLevel: data.batteryLevel,
                   model: data.model,
                   fcmToken: data.fcmToken,
-                  ownerUid,
+                  ownerUid: heartbeatOwnerUid,
                 },
               ).catch(err => console.error("Error updating heartbeat:", err));
             }

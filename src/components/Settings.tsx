@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { auth, db } from '../firebase';
-import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -159,28 +158,25 @@ export default function Settings() {
   };
 
   const handleResetServer = async () => {
-    if (!db) return;
     setIsResetting(true);
     setStatus(null);
 
     try {
-      const collections = ['message_logs', 'devices', 'message_templates', 'api_credentials'];
-      let totalDeleted = 0;
-
-      for (const colName of collections) {
-        const snapshot = await getDocs(collection(db, colName));
-        const batch = writeBatch(db);
-
-        snapshot.docs.forEach((entry) => {
-          batch.delete(doc(db, colName, entry.id));
-          totalDeleted += 1;
-        });
-
-        await batch.commit();
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch('/api/admin/reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to reset server');
       }
 
       setStatus({
-        message: `Server reset successful. ${totalDeleted} documents cleared. Gateway is now fresh.`,
+        message: `Server reset successful. ${payload.totalDeleted ?? 0} documents cleared. Gateway is now fresh.`,
         type: 'success',
       });
       setShowConfirm(false);
