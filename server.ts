@@ -1521,14 +1521,8 @@ async function startServer() {
 
       if (channel === 'sms' && !targetDeviceId) {
         console.warn(
-          `[Dispatch] No SMS device resolved for template message. ownerUid=${resolvedOwnerUid || 'none'} recipient=${recipient}`,
+          `[Dispatch] No live SMS device resolved for template message. ownerUid=${resolvedOwnerUid || 'none'} recipient=${recipient}. Queueing for pending pickup.`,
         );
-        return res.status(409).json({
-          error: "No online SMS device available for the specified owner/device",
-          ownerUid: resolvedOwnerUid || null,
-          ownerEmail: resolvedOwner.ownerEmail || null,
-          recipient,
-        });
       }
 
       const messageSource = req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous");
@@ -1629,6 +1623,9 @@ async function startServer() {
       // Real-time push via WebSocket if device is connected
       let pushed = false;
       let dispatchReason: string | null = null;
+      if (createdNew && channel === "sms" && !targetDeviceId) {
+        dispatchReason = "No live device resolved; queued for pending pickup";
+      }
       if (createdNew && targetDeviceId) {
         const dispatchResult = notifyDevice(targetDeviceId, {
           id: messageId,
@@ -1715,14 +1712,8 @@ async function startServer() {
       }
       if (channel === 'sms' && !targetDeviceId) {
         console.warn(
-          `[Dispatch] No SMS device resolved for ownerUid=${resolvedOwner.ownerUid || 'none'} recipient=${recipient}`,
+          `[Dispatch] No live SMS device resolved for ownerUid=${resolvedOwner.ownerUid || 'none'} recipient=${recipient}. Queueing for pending pickup.`,
         );
-        return res.status(409).json({
-          error: "No online SMS device available for the specified owner/device",
-          ownerUid: resolvedOwner.ownerUid || null,
-          ownerEmail: resolvedOwner.ownerEmail || null,
-          recipient,
-        });
       }
 
       const messageSource = req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous");
@@ -1818,6 +1809,9 @@ async function startServer() {
       // Real-time push via WebSocket if device is connected
       let pushed = false;
       let dispatchReason: string | null = null;
+      if (createdNew && channel === "sms" && !targetDeviceId) {
+        dispatchReason = "No live device resolved; queued for pending pickup";
+      }
       if (createdNew && targetDeviceId) {
         const dispatchResult = notifyDevice(targetDeviceId, {
           id: messageId,
