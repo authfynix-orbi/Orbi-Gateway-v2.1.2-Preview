@@ -1628,8 +1628,9 @@ async function startServer() {
 
       // Real-time push via WebSocket if device is connected
       let pushed = false;
+      let dispatchReason: string | null = null;
       if (createdNew && targetDeviceId) {
-        pushed = notifyDevice(targetDeviceId, {
+        const dispatchResult = notifyDevice(targetDeviceId, {
           id: messageId,
           recipient,
           body: parsedBody,
@@ -1638,6 +1639,8 @@ async function startServer() {
             ? { components: renderedTemplate.components }
             : {}),
         });
+        pushed = dispatchResult.pushed;
+        dispatchReason = dispatchResult.reason;
         
         if (pushed) {
           await docRef.update({
@@ -1645,6 +1648,12 @@ async function startServer() {
             pushedAt: admin.firestore.FieldValue.serverTimestamp()
           });
           logActivity("message_pushed", `Message ${messageId} pushed to device ${targetDeviceId}`, targetDeviceId, resolvedOwnerUid || null);
+        } else {
+          await docRef.update({
+            dispatchError: dispatchReason,
+            lastDispatchAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
         }
       }
 
@@ -1652,9 +1661,14 @@ async function startServer() {
         success: true, 
         messageId,
         pushed,
+        dispatchReason,
         source: messageSource,
         ownerUid: resolvedOwnerUid || null,
-        message: pushed ? "Message pushed to device" : "Message queued successfully" 
+        message: pushed
+          ? "Message pushed to device"
+          : (dispatchReason
+              ? `Message queued; live dispatch unavailable: ${dispatchReason}`
+              : "Message queued successfully")
       });
     } catch (error) {
       console.error("Error in /api/send-template:", error);
@@ -1803,18 +1817,27 @@ async function startServer() {
 
       // Real-time push via WebSocket if device is connected
       let pushed = false;
+      let dispatchReason: string | null = null;
       if (createdNew && targetDeviceId) {
-        pushed = notifyDevice(targetDeviceId, {
+        const dispatchResult = notifyDevice(targetDeviceId, {
           id: messageId,
           recipient,
           body,
           channel
         });
+        pushed = dispatchResult.pushed;
+        dispatchReason = dispatchResult.reason;
         
         if (pushed) {
           await docRef.update({
             status: "queued",
             pushedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        } else {
+          await docRef.update({
+            dispatchError: dispatchReason,
+            lastDispatchAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         }
       }
@@ -1823,10 +1846,15 @@ async function startServer() {
         success: true, 
         messageId,
         pushed,
+        dispatchReason,
         source: messageSource,
         ownerUid: resolvedOwner.ownerUid || null,
         deviceId: targetDeviceId || null,
-        message: pushed ? "Message pushed to device" : "Message queued successfully" 
+        message: pushed
+          ? "Message pushed to device"
+          : (dispatchReason
+              ? `Message queued; live dispatch unavailable: ${dispatchReason}`
+              : "Message queued successfully")
       });
     } catch (error) {
       console.error("Error in /api/messages/send:", error);
@@ -1852,6 +1880,7 @@ async function startServer() {
       const docRef = db.collection("message_logs").doc(messageId);
       
       let pushed = false;
+      let dispatchReason: string | null = null;
       let targetDeviceId = deviceId;
 
       await db.runTransaction(async (transaction) => {
@@ -1882,12 +1911,14 @@ async function startServer() {
 
         // Attempt real-time push
         if (targetDeviceId) {
-          pushed = notifyDevice(targetDeviceId, {
+          const dispatchResult = notifyDevice(targetDeviceId, {
             id: messageId,
             recipient: msgData?.recipient,
             body: msgData?.body,
             channel: msgData?.channel || "sms"
           });
+          pushed = dispatchResult.pushed;
+          dispatchReason = dispatchResult.reason;
         }
 
         const newStatus = pushed ? "queued" : "pending";
@@ -1895,7 +1926,9 @@ async function startServer() {
 
         const updateData: any = {
           status: newStatus,
-          error: admin.firestore.FieldValue.delete(), // Clear previous errors
+          error: pushed
+            ? admin.firestore.FieldValue.delete()
+            : (dispatchReason || admin.firestore.FieldValue.delete()),
           retryCount: retryCount,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         };
@@ -1907,6 +1940,7 @@ async function startServer() {
         if (pushed) {
           updateData.pushedAt = admin.firestore.FieldValue.serverTimestamp();
         }
+        updateData.lastDispatchAttemptAt = admin.firestore.FieldValue.serverTimestamp();
 
         transaction.update(docRef, updateData);
       });
@@ -1915,8 +1949,13 @@ async function startServer() {
         success: true, 
         messageId,
         pushed,
+        dispatchReason,
         deviceId: targetDeviceId || null,
-        message: pushed ? "Message successfully pushed to device for retry" : "Message placed back in pending queue for retry" 
+        message: pushed
+          ? "Message successfully pushed to device for retry"
+          : (dispatchReason
+              ? `Message placed back in pending queue for retry: ${dispatchReason}`
+              : "Message placed back in pending queue for retry")
       });
 
     } catch (error: any) {
@@ -2268,9 +2307,26 @@ async function startServer() {
   // Function to notify devices of new messages
   // This could be called from the /api/send-template endpoint
   // or via a Firestore trigger in a real production environment
+  type DeviceDispatchResult = {
+    pushed: boolean;
+    reason: string | null;
+  };
+
   const notifyDevice = (deviceId: string, messageData: any) => {
     const ws = connectedDevices.get(deviceId);
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    if (!ws) {
+      const reason = `No active websocket registered for device ${deviceId}`;
+      console.warn(`[Dispatch] ${reason}`);
+      return { pushed: false, reason };
+    }
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      const reason = `Websocket for device ${deviceId} is not open (state ${ws.readyState})`;
+      console.warn(`[Dispatch] ${reason}`);
+      return { pushed: false, reason };
+    }
+
+    try {
       ws.send(JSON.stringify({
         type: "new_message",
         message: {
@@ -2286,9 +2342,13 @@ async function startServer() {
           ...(messageData.templateName ? { templateName: messageData.templateName } : {}),
         }
       }));
-      return true;
+      console.log(`[Dispatch] Message ${messageData.id} pushed to device ${deviceId}`);
+      return { pushed: true, reason: null };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error(`[Dispatch] Failed to push message ${messageData.id} to device ${deviceId}:`, error);
+      return { pushed: false, reason };
     }
-    return false;
   };
 
   const keepAliveBaseUrl =
