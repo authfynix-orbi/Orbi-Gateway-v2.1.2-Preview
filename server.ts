@@ -62,7 +62,43 @@ function getFirebaseAdmin() {
 
 // Activity Logging Helper
 async function logActivity(type: string, details: string, deviceId: string | null = null, ownerUid: string | null = null) {
-  return;
+  const payload = {
+    ts: new Date().toISOString(),
+    scope: "activity",
+    type,
+    details,
+    deviceId,
+    ownerUid,
+  };
+  console.log(`[ORBI_ACTIVITY] ${JSON.stringify(payload)}`);
+}
+
+function logTrace(stage: string, metadata: Record<string, unknown> = {}) {
+  const payload = {
+    ts: new Date().toISOString(),
+    scope: "trace",
+    stage,
+    ...metadata,
+  };
+  console.log(`[ORBI_TRACE] ${JSON.stringify(payload)}`);
+}
+
+function logErrorTrace(stage: string, error: unknown, metadata: Record<string, unknown> = {}) {
+  const normalizedError = error instanceof Error
+    ? {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      }
+    : { message: String(error) };
+  const payload = {
+    ts: new Date().toISOString(),
+    scope: "trace_error",
+    stage,
+    ...metadata,
+    error: normalizedError,
+  };
+  console.error(`[ORBI_TRACE_ERROR] ${JSON.stringify(payload)}`);
 }
 
 function normalizeOptionalString(value: unknown) {
@@ -1231,10 +1267,12 @@ async function startServer() {
     const batchSize = Number.isFinite(requestedBatchSize)
       ? Math.min(Math.max(requestedBatchSize, 1), 100)
       : 50;
+    logTrace("pending.fetch.start", { deviceId, batchSize });
     
     try {
       const adminApp = getFirebaseAdmin();
       if (!adminApp) {
+        logTrace("pending.fetch.mock", { deviceId, batchSize });
         return res.json({ messages: [], count: 0 });
       }
       
@@ -1244,6 +1282,7 @@ async function startServer() {
       // Get device info to know the owner
       const deviceDoc = await db.collection("devices").doc(deviceId).get();
       const ownerUid = deviceDoc.exists ? deviceDoc.data()?.ownerUid : null;
+      logTrace("pending.fetch.device_context", { deviceId, ownerUid, batchSize });
       
       // Use a transaction to prevent race conditions if multiple devices poll simultaneously
       await db.runTransaction(async (transaction) => {
@@ -1271,6 +1310,14 @@ async function startServer() {
 
         if (assignedSnapshot.empty && unassignedDocs.length === 0) return;
 
+        logTrace("pending.fetch.candidates", {
+          deviceId,
+          ownerUid,
+          assignedCount: assignedSnapshot.size,
+          unassignedCount: unassignedDocs.length,
+          batchSize,
+        });
+
         const docsToProcess = [...assignedSnapshot.docs, ...unassignedDocs].slice(0, batchSize);
 
         // 3. Lock them and prepare response
@@ -1278,6 +1325,14 @@ async function startServer() {
           const msgData = doc.data();
           // Double check status in case it changed
           if (msgData.status === "pending" || msgData.status === "queued") {
+            logTrace("pending.fetch.lock_message", {
+              deviceId,
+              ownerUid,
+              messageId: doc.id,
+              previousStatus: msgData.status,
+              recipient: msgData.recipient || null,
+              assignedToDevice: msgData.deviceId || null,
+            });
             messages.push({
               id: doc.id,
               messageId: doc.id, // Android app might expect messageId
@@ -1303,8 +1358,14 @@ async function startServer() {
         messages, 
         count: messages.length 
       });
+      logTrace("pending.fetch.complete", {
+        deviceId,
+        ownerUid,
+        count: messages.length,
+        messageIds: messages.map((entry) => entry.id),
+      });
     } catch (error) {
-      console.error("Error fetching pending messages:", error);
+      logErrorTrace("pending.fetch.failed", error, { deviceId, batchSize });
       res.status(500).json({ error: "Failed to fetch pending messages" });
     }
   });
@@ -1452,6 +1513,18 @@ async function startServer() {
   // Send Template API
   app.post("/api/send-template", authenticateFirebaseUserIfPresent, authenticateExternalRequest, requireAuthenticatedSender, requireCredentialScope(["send_template"]), async (req: any, res) => {
     const { templateName, recipient, data, channel, language, messageType, ownerUid, ownerEmail, deviceId, requestId } = req.body;
+    logTrace("send_template.request", {
+      templateName,
+      recipient,
+      channel,
+      language: language || null,
+      messageType: messageType || null,
+      requestedOwnerUid: ownerUid || null,
+      requestedOwnerEmail: ownerEmail || null,
+      requestedDeviceId: deviceId || null,
+      requestId: requestId || null,
+      authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous"),
+    });
 
     if (!templateName || !recipient || !channel) {
       return res.status(400).json({ error: "templateName, recipient, and channel are required" });
@@ -1476,6 +1549,13 @@ async function startServer() {
         ownerUid: req.externalAuth?.ownerUid || req.firebaseUser?.uid || ownerUid,
         ownerEmail: req.externalAuth?.ownerEmail || req.firebaseUser?.email || ownerEmail,
         deviceId,
+      });
+      logTrace("send_template.owner_resolved", {
+        templateName,
+        recipient,
+        channel,
+        resolvedOwnerUid: resolvedOwner.ownerUid || null,
+        resolvedOwnerEmail: resolvedOwner.ownerEmail || null,
       });
       
       // Find template
@@ -1518,6 +1598,13 @@ async function startServer() {
           targetDeviceId = await findBestDeviceForOwner(db, resolvedOwnerUid);
         }
       }
+      logTrace("send_template.device_selected", {
+        templateName,
+        recipient,
+        channel,
+        resolvedOwnerUid: resolvedOwnerUid || null,
+        targetDeviceId: targetDeviceId || null,
+      });
 
       if (channel === 'sms' && !targetDeviceId) {
         console.warn(
@@ -1607,6 +1694,14 @@ async function startServer() {
       }
 
       if (duplicateMessage) {
+        logTrace("send_template.duplicate", {
+          templateName,
+          recipient,
+          channel,
+          messageId: duplicateMessage.id,
+          status: duplicateMessage.data.status || null,
+          deviceId: duplicateMessage.data.deviceId || null,
+        });
         return res.json({
           success: true,
           duplicate: true,
@@ -1626,6 +1721,15 @@ async function startServer() {
       if (createdNew && channel === "sms" && !targetDeviceId) {
         dispatchReason = "No live device resolved; queued for pending pickup";
       }
+      logTrace("send_template.message_created", {
+        templateName,
+        recipient,
+        channel,
+        messageId,
+        createdNew,
+        targetDeviceId: targetDeviceId || null,
+        dispatchReason,
+      });
       if (createdNew && targetDeviceId) {
         const dispatchResult = notifyDevice(targetDeviceId, {
           id: messageId,
@@ -1652,6 +1756,15 @@ async function startServer() {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         }
+        logTrace("send_template.dispatch_attempt", {
+          templateName,
+          recipient,
+          channel,
+          messageId,
+          targetDeviceId,
+          pushed,
+          dispatchReason,
+        });
       }
 
       res.json({ 
@@ -1668,7 +1781,12 @@ async function startServer() {
               : "Message queued successfully")
       });
     } catch (error) {
-      console.error("Error in /api/send-template:", error);
+      logErrorTrace("send_template.failed", error, {
+        templateName,
+        recipient,
+        channel,
+        requestId: requestId || null,
+      });
       res.status(500).json({ error: "Failed to process template" });
     }
   });
@@ -1676,6 +1794,17 @@ async function startServer() {
   // Direct Send API (Raw SMS without templates)
   app.post("/api/messages/send", authenticateFirebaseUserIfPresent, authenticateExternalRequest, requireAuthenticatedSender, requireCredentialScope(["send_sms"]), async (req: any, res) => {
     const { recipient, body, channel = "sms", ownerUid, ownerEmail, deviceId, messageType = "transactional", requestId } = req.body;
+    logTrace("send_message.request", {
+      recipient,
+      channel,
+      bodyLength: typeof body === "string" ? body.length : null,
+      requestedOwnerUid: ownerUid || null,
+      requestedOwnerEmail: ownerEmail || null,
+      requestedDeviceId: deviceId || null,
+      messageType,
+      requestId: requestId || null,
+      authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous"),
+    });
 
     if (!recipient || !body) {
       return res.status(400).json({ error: "recipient and body are required" });
@@ -1699,6 +1828,12 @@ async function startServer() {
         ownerEmail: req.externalAuth?.ownerEmail || req.firebaseUser?.email || ownerEmail,
         deviceId,
       });
+      logTrace("send_message.owner_resolved", {
+        recipient,
+        channel,
+        resolvedOwnerUid: resolvedOwner.ownerUid || null,
+        resolvedOwnerEmail: resolvedOwner.ownerEmail || null,
+      });
       
       // Determine device to use
       let targetDeviceId = deviceId;
@@ -1710,6 +1845,12 @@ async function startServer() {
       if (!targetDeviceId && channel === 'sms' && resolvedOwner.ownerUid) {
         targetDeviceId = await findBestDeviceForOwner(db, resolvedOwner.ownerUid);
       }
+      logTrace("send_message.device_selected", {
+        recipient,
+        channel,
+        resolvedOwnerUid: resolvedOwner.ownerUid || null,
+        targetDeviceId: targetDeviceId || null,
+      });
       if (channel === 'sms' && !targetDeviceId) {
         console.warn(
           `[Dispatch] No live SMS device resolved for ownerUid=${resolvedOwner.ownerUid || 'none'} recipient=${recipient}. Queueing for pending pickup.`,
@@ -1793,6 +1934,13 @@ async function startServer() {
       }
 
       if (duplicateMessage) {
+        logTrace("send_message.duplicate", {
+          recipient,
+          channel,
+          messageId: duplicateMessage.id,
+          status: duplicateMessage.data.status || null,
+          deviceId: duplicateMessage.data.deviceId || null,
+        });
         return res.json({
           success: true,
           duplicate: true,
@@ -1812,6 +1960,14 @@ async function startServer() {
       if (createdNew && channel === "sms" && !targetDeviceId) {
         dispatchReason = "No live device resolved; queued for pending pickup";
       }
+      logTrace("send_message.message_created", {
+        recipient,
+        channel,
+        messageId,
+        createdNew,
+        targetDeviceId: targetDeviceId || null,
+        dispatchReason,
+      });
       if (createdNew && targetDeviceId) {
         const dispatchResult = notifyDevice(targetDeviceId, {
           id: messageId,
@@ -1834,6 +1990,14 @@ async function startServer() {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         }
+        logTrace("send_message.dispatch_attempt", {
+          recipient,
+          channel,
+          messageId,
+          targetDeviceId,
+          pushed,
+          dispatchReason,
+        });
       }
 
       res.json({ 
@@ -1851,7 +2015,11 @@ async function startServer() {
               : "Message queued successfully")
       });
     } catch (error) {
-      console.error("Error in /api/messages/send:", error);
+      logErrorTrace("send_message.failed", error, {
+        recipient,
+        channel,
+        requestId: requestId || null,
+      });
       res.status(500).json({ error: "Failed to send message" });
     }
   });
@@ -2015,6 +2183,11 @@ async function startServer() {
     const adminApp = getFirebaseAdmin();
 
     console.log(`[WebSocket] New connection established, waiting for identification...`);
+    logTrace("ws.connection.open", {
+      remoteAddress: req.socket.remoteAddress || null,
+      remotePort: req.socket.remotePort || null,
+      url: req.url || null,
+    });
 
     ws.on("message", async (message) => {
       try {
@@ -2092,6 +2265,13 @@ async function startServer() {
           // Already handled above
         } else if (data.type === "message_status") {
           // Handle message status updates (sent, failed)
+          logTrace("ws.message_status.received", {
+            deviceId,
+            ownerUid,
+            messageId: data.messageId || null,
+            status: data.status || null,
+            error: data.error || null,
+          });
           if (adminApp && data.messageId) {
             const docRef = adminApp.firestore().collection("message_logs").doc(data.messageId);
             docRef.update({
@@ -2113,6 +2293,13 @@ async function startServer() {
           }
         } else if (data.type === "delivery_report") {
           // Handle explicit delivery reports
+          logTrace("ws.delivery_report.received", {
+            deviceId,
+            ownerUid,
+            messageId: data.messageId || null,
+            status: data.status || null,
+            error: data.error || null,
+          });
           if (adminApp && data.messageId) {
             const docRef = adminApp.firestore().collection("message_logs").doc(data.messageId);
             const updateData: any = {
@@ -2176,12 +2363,19 @@ async function startServer() {
           }
         }
       } catch (error) {
-        console.error(`[WebSocket] Error processing message from ${deviceId}:`, error);
+        logErrorTrace("ws.message.failed", error, {
+          deviceId,
+          ownerUid,
+        });
       }
     });
 
     ws.on("close", () => {
       console.log(`[WebSocket] Device ${deviceId} closed connection`);
+      logTrace("ws.connection.close", {
+        deviceId,
+        ownerUid,
+      });
       
       // Don't immediately mark offline - let the heartbeat timeout mechanism handle it
       // Only clean up the lastHeartbeat entry after a delay
@@ -2308,15 +2502,32 @@ async function startServer() {
 
   const notifyDevice = (deviceId: string, messageData: any) => {
     const ws = connectedDevices.get(deviceId);
+    logTrace("dispatch.notify.attempt", {
+      deviceId,
+      messageId: messageData.id || null,
+      recipient: messageData.recipient || null,
+      channel: messageData.channel || "sms",
+    });
     if (!ws) {
       const reason = `No active websocket registered for device ${deviceId}`;
       console.warn(`[Dispatch] ${reason}`);
+      logTrace("dispatch.notify.miss", {
+        deviceId,
+        messageId: messageData.id || null,
+        reason,
+      });
       return { pushed: false, reason };
     }
 
     if (ws.readyState !== WebSocket.OPEN) {
       const reason = `Websocket for device ${deviceId} is not open (state ${ws.readyState})`;
       console.warn(`[Dispatch] ${reason}`);
+      logTrace("dispatch.notify.not_open", {
+        deviceId,
+        messageId: messageData.id || null,
+        readyState: ws.readyState,
+        reason,
+      });
       return { pushed: false, reason };
     }
 
@@ -2337,10 +2548,20 @@ async function startServer() {
         }
       }));
       console.log(`[Dispatch] Message ${messageData.id} pushed to device ${deviceId}`);
+      logTrace("dispatch.notify.pushed", {
+        deviceId,
+        messageId: messageData.id || null,
+        recipient: messageData.recipient || null,
+      });
       return { pushed: true, reason: null };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       console.error(`[Dispatch] Failed to push message ${messageData.id} to device ${deviceId}:`, error);
+      logErrorTrace("dispatch.notify.failed", error, {
+        deviceId,
+        messageId: messageData.id || null,
+        recipient: messageData.recipient || null,
+      });
       return { pushed: false, reason };
     }
   };
