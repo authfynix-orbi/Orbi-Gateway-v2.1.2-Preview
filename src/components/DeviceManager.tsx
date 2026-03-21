@@ -16,8 +16,20 @@ interface Device {
   ownerUid: string;
 }
 
+interface LiveDeviceStatus {
+  deviceId: string;
+  status: 'online' | 'offline' | 'busy';
+  liveConnected: boolean;
+  heartbeatAlive: boolean;
+  lastHeartbeatAt: string | null;
+  heartbeatAgeMs: number | null;
+  heartbeatAgeSeconds: number | null;
+  batteryLevel: number | null;
+}
+
 export default function DeviceManager() {
   const [devices, setDevices] = useState<Device[]>([]);
+  const [liveStatusByDevice, setLiveStatusByDevice] = useState<Record<string, LiveDeviceStatus>>({});
   const [loading, setLoading] = useState(true);
   const [isAddDeviceModalOpen, setIsAddDeviceModalOpen] = useState(false);
   const [isDocsModalOpen, setIsDocsModalOpen] = useState(false);
@@ -65,18 +77,37 @@ export default function DeviceManager() {
   }, [isAddDeviceModalOpen]);
 
   const getDerivedStatus = (device: Device) => {
+    const liveStatus = liveStatusByDevice[device.id];
+    if (liveStatus?.heartbeatAlive) {
+      return liveStatus.status || 'online';
+    }
     if (device.status === 'offline') return 'offline';
     if (!device.lastSeen) return 'offline';
     
     const lastSeenDate = device.lastSeen?.toDate?.() || new Date(0);
     const diffSeconds = (currentTime.getTime() - lastSeenDate.getTime()) / 1000;
     
-    // Mark as offline if no heartbeat in the last 15 seconds
-    if (diffSeconds > 15) {
+    // Heartbeats are persisted every 5 minutes to keep Firestore costs down,
+    // so derived status should allow a much wider freshness window.
+    if (diffSeconds > 12 * 60) {
       return 'offline';
     }
     return device.status;
   };
+
+  const getHeartbeatLabel = (device: Device) => {
+    const liveStatus = liveStatusByDevice[device.id];
+    if (liveStatus?.heartbeatAlive && liveStatus.heartbeatAgeSeconds != null) {
+      return `Live ${liveStatus.heartbeatAgeSeconds}s ago`;
+    }
+    if (liveStatus && liveStatus.lastHeartbeatAt) {
+      return `Last live beat ${new Date(liveStatus.lastHeartbeatAt).toLocaleTimeString()}`;
+    }
+    return `Persisted ${device.lastSeen?.toDate?.()?.toLocaleTimeString() || 'Never'}`;
+  };
+
+  const getDisplayedBatteryLevel = (device: Device) =>
+    liveStatusByDevice[device.id]?.batteryLevel ?? device.batteryLevel ?? 0;
 
   const activeOnlineCount = devices.filter(d => getDerivedStatus(d) === 'online').length;
 
@@ -137,6 +168,67 @@ export default function DeviceManager() {
       if (unsubscribe) unsubscribe();
     };
   }, [auth.currentUser]);
+
+  useEffect(() => {
+    if (!auth.currentUser || devices.length === 0) {
+      setLiveStatusByDevice({});
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchLiveStatuses = async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token || cancelled) return;
+
+        const deviceIds = devices.map((device) => device.id).filter(Boolean);
+        if (deviceIds.length === 0) {
+          if (!cancelled) {
+            setLiveStatusByDevice({});
+          }
+          return;
+        }
+
+        const params = new URLSearchParams({
+          deviceIds: deviceIds.join(','),
+        });
+        const response = await fetch(`/api/devices/live-status?${params.toString()}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (cancelled) return;
+
+        const nextState = (Array.isArray(payload.devices) ? payload.devices : []).reduce(
+          (acc: Record<string, LiveDeviceStatus>, entry: LiveDeviceStatus) => {
+            if (entry?.deviceId) {
+              acc[entry.deviceId] = entry;
+            }
+            return acc;
+          },
+          {},
+        );
+        setLiveStatusByDevice(nextState);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load live device state:', error);
+        }
+      }
+    };
+
+    fetchLiveStatuses();
+    const interval = setInterval(fetchLiveStatuses, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [devices]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -234,12 +326,12 @@ export default function DeviceManager() {
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-6 relative z-10">
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                   <div className="flex items-center gap-2 mb-1">
                     <Battery className={`w-3.5 h-3.5 ${getBatteryColor(device.batteryLevel || 0)}`} />
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Battery</span>
                   </div>
-                  <p className="text-sm font-black text-slate-900">{device.batteryLevel || 0}%</p>
+                  <p className="text-sm font-black text-slate-900">{getDisplayedBatteryLevel(device)}%</p>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                   <div className="flex items-center gap-2 mb-1">
@@ -254,7 +346,7 @@ export default function DeviceManager() {
                 <div className="flex items-center gap-2">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   <span className="text-[10px] font-bold text-slate-500">
-                    Seen {device.lastSeen?.toDate?.()?.toLocaleTimeString() || 'Never'}
+                    {getHeartbeatLabel(device)}
                   </span>
                 </div>
                 <div className="flex gap-2">

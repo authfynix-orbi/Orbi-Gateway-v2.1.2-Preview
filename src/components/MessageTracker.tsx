@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  DocumentData,
+  Query,
+  QueryDocumentSnapshot,
+  Timestamp,
   collection,
   doc,
   getDoc,
   getDocs,
   onSnapshot,
+  limit,
   orderBy,
   query,
+  startAfter,
   where,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -54,9 +60,16 @@ interface Template {
 type MessageStatus = MessageLog['status'] | 'all';
 
 const statusOptions: MessageStatus[] = ['all', 'pending', 'queued', 'processing', 'sent', 'delivered', 'failed', 'received'];
+const MESSAGE_WINDOW_DAYS = 90;
+const MESSAGE_PAGE_SIZE = 250;
 
 export default function MessageTracker() {
   const [messages, setMessages] = useState<MessageLog[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isAdminScope, setIsAdminScope] = useState(false);
   const [filter, setFilter] = useState<MessageStatus>('all');
   const [laneFilter, setLaneFilter] = useState<MessageLane>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,6 +86,67 @@ export default function MessageTracker() {
   const [isSending, setIsSending] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  const buildMessageQuery = (
+    adminScope: boolean,
+    ownerUid: string,
+    options: {
+      afterDoc?: QueryDocumentSnapshot<DocumentData> | null;
+    } = {},
+  ): Query<DocumentData> => {
+    const cutoffTimestamp = Timestamp.fromDate(
+      new Date(Date.now() - MESSAGE_WINDOW_DAYS * 24 * 60 * 60 * 1000),
+    );
+
+    if (adminScope) {
+      return options.afterDoc
+        ? query(
+            collection(db!, 'message_logs'),
+            where('timestamp', '>=', cutoffTimestamp),
+            orderBy('timestamp', 'desc'),
+            startAfter(options.afterDoc),
+            limit(MESSAGE_PAGE_SIZE),
+          )
+        : query(
+            collection(db!, 'message_logs'),
+            where('timestamp', '>=', cutoffTimestamp),
+            orderBy('timestamp', 'desc'),
+            limit(MESSAGE_PAGE_SIZE),
+          );
+    }
+
+    return options.afterDoc
+      ? query(
+          collection(db!, 'message_logs'),
+          where('createdBy', '==', ownerUid),
+          where('timestamp', '>=', cutoffTimestamp),
+          orderBy('timestamp', 'desc'),
+          startAfter(options.afterDoc),
+          limit(MESSAGE_PAGE_SIZE),
+        )
+      : query(
+          collection(db!, 'message_logs'),
+          where('createdBy', '==', ownerUid),
+          where('timestamp', '>=', cutoffTimestamp),
+          orderBy('timestamp', 'desc'),
+          limit(MESSAGE_PAGE_SIZE),
+        );
+  };
+
+  const mergeMessages = (incoming: MessageLog[], replace = false) => {
+    setMessages((current) => {
+      const nextMap = new Map<string, MessageLog>();
+      if (!replace) {
+        current.forEach((entry) => nextMap.set(entry.id, entry));
+      }
+      incoming.forEach((entry) => nextMap.set(entry.id, entry));
+      return Array.from(nextMap.values()).sort((a, b) => {
+        const left = a.timestamp?.toMillis?.() ?? new Date(a.timestamp || 0).getTime();
+        const right = b.timestamp?.toMillis?.() ?? new Date(b.timestamp || 0).getTime();
+        return right - left;
+      });
+    });
+  };
+
   useEffect(() => {
     if (!db || !auth.currentUser) return;
 
@@ -84,23 +158,27 @@ export default function MessageTracker() {
         const isAdmin =
           (userDoc.exists() && userDoc.data().role === 'admin') ||
           (auth.currentUser?.email === 'auth.fynix@gmail.com' && auth.currentUser?.emailVerified === true);
+        setIsAdminScope(isAdmin);
 
-        const q = isAdmin
-          ? query(collection(db, 'message_logs'), orderBy('timestamp', 'desc'))
-          : query(collection(db, 'message_logs'), where('createdBy', '==', auth.currentUser!.uid), orderBy('timestamp', 'desc'));
+        const q = buildMessageQuery(isAdmin, auth.currentUser!.uid);
 
         unsubscribe = onSnapshot(
           q,
           (snapshot) => {
             const msgs = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() } as MessageLog));
-            setMessages(msgs);
+            mergeMessages(msgs, true);
+            setLastVisible(snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null);
+            setHasMore(snapshot.docs.length === MESSAGE_PAGE_SIZE);
+            setIsLoading(false);
           },
           (error) => {
             console.error('MessageTracker: Error fetching messages:', error);
+            setIsLoading(false);
           },
         );
       } catch (error) {
         console.error('MessageTracker: Error setting up listener:', error);
+        setIsLoading(false);
       }
     };
 
@@ -108,6 +186,29 @@ export default function MessageTracker() {
 
     return () => unsubscribe?.();
   }, []);
+
+  const loadMoreMessages = async () => {
+    if (!db || !auth.currentUser || !lastVisible || isLoadingMore || !hasMore) {
+      return;
+    }
+
+    setIsLoadingMore(true);
+    try {
+      const nextQuery = buildMessageQuery(isAdminScope, auth.currentUser.uid, {
+        afterDoc: lastVisible,
+      });
+      const snapshot = await getDocs(nextQuery);
+      const nextMessages = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() } as MessageLog));
+      mergeMessages(nextMessages, false);
+      setLastVisible(snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : lastVisible);
+      setHasMore(snapshot.docs.length === MESSAGE_PAGE_SIZE);
+    } catch (error) {
+      console.error('MessageTracker: Error loading older messages:', error);
+      setFeedback({ message: 'Failed to load older messages', type: 'error' });
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     if (!feedback) return;
@@ -352,7 +453,7 @@ export default function MessageTracker() {
             <p className="section-kicker">Delivery Control</p>
             <h2 className="section-heading">Message Tracking</h2>
             <p className="section-subcopy">
-              Review outbound job traffic and forwarded inbox traffic with a clear visual split so operators can scan the queue faster.
+              Review outbound job traffic and forwarded inbox traffic inside a bounded recent-history window so delivery control stays responsive at scale.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -383,6 +484,10 @@ export default function MessageTracker() {
           <MetricCard label="Queued" value={summary.queued.toString()} tone="amber" />
           <MetricCard label="Delivered" value={summary.delivered.toString()} tone="emerald" />
           <MetricCard label="Inbox" value={summary.received.toString()} tone="violet" />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm font-medium text-slate-600">
+          Live stream covers the latest {MESSAGE_PAGE_SIZE} records from the last {MESSAGE_WINDOW_DAYS} days. Older records can be loaded on demand.
         </div>
 
         <div className="flex flex-col gap-3 lg:flex-row">
@@ -427,7 +532,9 @@ export default function MessageTracker() {
       <div className="table-shell p-4 md:p-6">
         <div className="max-h-[68vh] overflow-y-auto pr-1">
           <div className="divide-y divide-slate-100">
-            {filteredMessages.length === 0 ? (
+            {isLoading ? (
+              <div className="py-12 text-center text-sm font-medium text-slate-500">Loading recent messages...</div>
+            ) : filteredMessages.length === 0 ? (
               <div className="py-12 text-center text-sm font-medium text-slate-500">No messages found.</div>
             ) : (
               filteredMessages.map((message) => {
@@ -508,6 +615,18 @@ export default function MessageTracker() {
               })
             )}
           </div>
+          {!isLoading && hasMore ? (
+            <div className="pt-4 text-center">
+              <button
+                onClick={loadMoreMessages}
+                disabled={isLoadingMore}
+                className="enterprise-button-secondary disabled:opacity-50"
+              >
+                {isLoadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Load Older Messages
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
 

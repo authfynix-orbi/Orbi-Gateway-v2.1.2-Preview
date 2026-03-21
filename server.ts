@@ -14,8 +14,20 @@ const __dirname = path.dirname(__filename);
 
 // Track last heartbeat time per device
 const lastHeartbeat = new Map<string, number>();
+const lastHeartbeatWrite = new Map<string, number>();
+const deviceSentCountCache = new Map<string, { totalSent: number; fetchedAt: number }>();
+const lastPersistedDeviceState = new Map<string, {
+  status: string;
+  batteryLevel: number | null;
+  model: string | null;
+  fcmToken: string | null;
+  ownerUid: string | null;
+}>();
 const HEARTBEAT_TIMEOUT_MS = 90000;    // 90 seconds - tolerate 30s client heartbeat cadence with network jitter
 const STALE_CHECK_INTERVAL_MS = 30000; // How often to check for stale devices
+const HEARTBEAT_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+const HEARTBEAT_BATTERY_WRITE_DELTA = 5;
+const DEVICE_SENT_COUNT_CACHE_MS = 60 * 1000;
 const STALE_PROCESSING_TIMEOUT_MS = 120000; // Requeue jobs stuck in processing for 2+ minutes
 const STALE_PROCESSING_CHECK_INTERVAL_MS = 30000;
 const STALE_PROCESSING_BATCH_SIZE = 100;
@@ -50,20 +62,202 @@ function getFirebaseAdmin() {
 
 // Activity Logging Helper
 async function logActivity(type: string, details: string, deviceId: string | null = null, ownerUid: string | null = null) {
-  const adminApp = getFirebaseAdmin();
-  if (adminApp) {
-    try {
-      await adminApp.firestore().collection("activity_logs").add({
-        type,
-        details,
-        deviceId,
-        ownerUid,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-      });
-    } catch (err) {
-      console.error("Error logging activity:", err);
+  return;
+}
+
+function normalizeOptionalString(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
+function normalizeBatteryLevel(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
     }
   }
+  return null;
+}
+
+type DevicePresenceState = {
+  status: string;
+  batteryLevel: number | null;
+  model: string | null;
+  fcmToken: string | null;
+  ownerUid: string | null;
+};
+
+function buildDevicePresenceState(input: {
+  status?: unknown;
+  batteryLevel?: unknown;
+  model?: unknown;
+  fcmToken?: unknown;
+  ownerUid?: unknown;
+}): DevicePresenceState {
+  return {
+    status: normalizeOptionalString(input.status) || "online",
+    batteryLevel: normalizeBatteryLevel(input.batteryLevel),
+    model: normalizeOptionalString(input.model),
+    fcmToken: normalizeOptionalString(input.fcmToken),
+    ownerUid: normalizeOptionalString(input.ownerUid),
+  };
+}
+
+function shouldPersistDevicePresence(deviceId: string, nextState: DevicePresenceState, force = false) {
+  if (force) {
+    return true;
+  }
+
+  const now = Date.now();
+  const previousState = lastPersistedDeviceState.get(deviceId);
+  const lastWriteAt = lastHeartbeatWrite.get(deviceId) || 0;
+
+  if (!previousState) {
+    return true;
+  }
+
+  if (previousState.status !== nextState.status) {
+    return true;
+  }
+
+  if (previousState.model !== nextState.model) {
+    return true;
+  }
+
+  if (previousState.fcmToken !== nextState.fcmToken) {
+    return true;
+  }
+
+  if (previousState.ownerUid !== nextState.ownerUid) {
+    return true;
+  }
+
+  if (
+    nextState.batteryLevel != null &&
+    (
+      previousState.batteryLevel == null ||
+      Math.abs(previousState.batteryLevel - nextState.batteryLevel) >= HEARTBEAT_BATTERY_WRITE_DELTA
+    )
+  ) {
+    return true;
+  }
+
+  return now - lastWriteAt >= HEARTBEAT_WRITE_INTERVAL_MS;
+}
+
+function markDevicePresencePersisted(deviceId: string, state: DevicePresenceState) {
+  lastHeartbeatWrite.set(deviceId, Date.now());
+  lastPersistedDeviceState.set(deviceId, state);
+}
+
+function buildLiveDeviceStatus(deviceId: string, isSocketConnected: boolean) {
+  const lastBeat = lastHeartbeat.get(deviceId) || 0;
+  const lastWriteAt = lastHeartbeatWrite.get(deviceId) || 0;
+  const lastPersistedState = lastPersistedDeviceState.get(deviceId);
+  const sentCountCache = deviceSentCountCache.get(deviceId);
+  const now = Date.now();
+  const heartbeatAgeMs = lastBeat > 0 ? now - lastBeat : null;
+  const isAlive = heartbeatAgeMs != null && heartbeatAgeMs <= HEARTBEAT_TIMEOUT_MS;
+
+  return {
+    deviceId,
+    status: isAlive ? (lastPersistedState?.status || "online") : "offline",
+    liveConnected: isSocketConnected,
+    heartbeatAlive: isAlive,
+    lastHeartbeatAt: lastBeat > 0 ? new Date(lastBeat).toISOString() : null,
+    heartbeatAgeMs,
+    heartbeatAgeSeconds: heartbeatAgeMs == null ? null : Math.round(heartbeatAgeMs / 1000),
+    lastPersistedAt: lastWriteAt > 0 ? new Date(lastWriteAt).toISOString() : null,
+    batteryLevel: lastPersistedState?.batteryLevel ?? null,
+    model: lastPersistedState?.model ?? null,
+    ownerUid: lastPersistedState?.ownerUid ?? null,
+    totalMessagesSent: sentCountCache?.totalSent ?? null,
+  };
+}
+
+async function persistDevicePresence(
+  db: FirebaseFirestore.Firestore,
+  deviceId: string,
+  input: {
+    status?: unknown;
+    batteryLevel?: unknown;
+    model?: unknown;
+    fcmToken?: unknown;
+    ownerUid?: unknown;
+  },
+  options: {
+    force?: boolean;
+  } = {},
+) {
+  const nextState = buildDevicePresenceState(input);
+  const previousState = lastPersistedDeviceState.get(deviceId);
+
+  if (!shouldPersistDevicePresence(deviceId, nextState, options.force === true)) {
+    return false;
+  }
+
+  const updateData: Record<string, unknown> = {
+    lastSeen: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    status: nextState.status,
+  };
+
+  if (previousState?.status !== nextState.status) {
+    updateData.last_status_change = admin.firestore.FieldValue.serverTimestamp();
+  }
+
+  if (nextState.status === "offline") {
+    updateData.offline_reason = "Heartbeat timeout - no recent gateway activity";
+  } else {
+    updateData.offline_reason = admin.firestore.FieldValue.delete();
+  }
+
+  if (nextState.batteryLevel != null) {
+    updateData.batteryLevel = nextState.batteryLevel;
+  }
+
+  if (nextState.model) {
+    updateData.model = nextState.model;
+  }
+
+  if (nextState.fcmToken) {
+    updateData.fcmToken = nextState.fcmToken;
+  }
+
+  if (nextState.ownerUid) {
+    updateData.ownerUid = nextState.ownerUid;
+  }
+
+  await db.collection("devices").doc(deviceId).set(updateData, { merge: true });
+  markDevicePresencePersisted(deviceId, nextState);
+  return true;
+}
+
+async function getDeviceSentCount(
+  db: FirebaseFirestore.Firestore,
+  deviceId: string,
+) {
+  const cached = deviceSentCountCache.get(deviceId);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < DEVICE_SENT_COUNT_CACHE_MS) {
+    return cached.totalSent;
+  }
+
+  const countSnapshot = await db.collection("message_logs")
+    .where("deviceId", "==", deviceId)
+    .where("status", "in", ["sent", "delivered"])
+    .count()
+    .get();
+  const totalSent = countSnapshot.data().count || 0;
+  deviceSentCountCache.set(deviceId, { totalSent, fetchedAt: now });
+  return totalSent;
 }
 
 async function resolveOwnerContext(
@@ -192,6 +386,7 @@ function generatePairingCode() {
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const connectedDevices = new Map<string, WebSocket>();
 
   // Enable CORS for all origins (configure this later for production security)
   app.use(cors({
@@ -370,6 +565,31 @@ async function startServer() {
       time_since_heartbeat_seconds: Math.round(timeSinceLastBeat / 1000),
       timeout_in_seconds: Math.max(0, Math.round((HEARTBEAT_TIMEOUT_MS - timeSinceLastBeat) / 1000)),
     });
+  });
+
+  app.get("/api/devices/live-status", requireFirebaseUser, async (req: any, res) => {
+    try {
+      const requestedIds = String(req.query.deviceIds || "")
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+      if (requestedIds.length === 0) {
+        return res.json({ devices: [] });
+      }
+
+      const uniqueIds = Array.from(new Set(requestedIds)).slice(0, 250);
+      return res.json({
+        devices: uniqueIds.map((deviceId) =>
+          buildLiveDeviceStatus(deviceId, connectedDevices.has(deviceId)),
+        ),
+        generatedAt: new Date().toISOString(),
+        heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS,
+      });
+    } catch (error) {
+      console.error("Failed to load live device status:", error);
+      return res.status(500).json({ error: "Failed to load live device status" });
+    }
   });
 
   // API routes for the ORBI Gateway
@@ -784,31 +1004,25 @@ async function startServer() {
 
   // Device Heartbeat
   app.post("/api/devices/heartbeat", async (req, res) => {
-    const { deviceId, status, batteryLevel } = req.body;
+    const { deviceId, status, batteryLevel, model, fcmToken, ownerUid } = req.body;
     
     if (!deviceId) return res.status(400).json({ error: "deviceId is required" });
 
     try {
+      lastHeartbeat.set(deviceId, Date.now());
       const adminApp = getFirebaseAdmin();
       if (adminApp) {
         const db = adminApp.firestore();
-        
-        const updateData: any = {
-          lastSeen: admin.firestore.FieldValue.serverTimestamp(),
-          status: status || "online",
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          last_status_change: admin.firestore.FieldValue.serverTimestamp(),
-          offline_reason: admin.firestore.FieldValue.delete(),
-        };
-
-        if (batteryLevel !== undefined) {
-          updateData.batteryLevel = batteryLevel;
-        }
-
-        await db.collection("devices").doc(deviceId).set(updateData, { merge: true });
+        await persistDevicePresence(db, deviceId, {
+          status,
+          batteryLevel,
+          model,
+          fcmToken,
+          ownerUid,
+        });
       }
       
-      res.json({ success: true, nextCheckIn: 30 }); // Tell device to check in again in 30s
+      res.json({ success: true, nextCheckIn: 300 });
     } catch (error) {
       console.error(`Heartbeat error for ${deviceId}:`, error);
       res.status(500).json({ error: "Failed to process heartbeat" });
@@ -818,6 +1032,7 @@ async function startServer() {
   // Fetch Pending Messages (for devices) - Enterprise Grade Transactional Locking
   app.get("/api/messages/pending/:deviceId", async (req, res) => {
     const { deviceId } = req.params;
+    lastHeartbeat.set(deviceId, Date.now());
     const requestedBatchSize = Number.parseInt(String(req.query.batchSize || ""), 10);
     const batchSize = Number.isFinite(requestedBatchSize)
       ? Math.min(Math.max(requestedBatchSize, 1), 100)
@@ -1531,9 +1746,6 @@ async function startServer() {
   // Initialize WebSocket server
   const wss = new WebSocketServer({ server });
 
-  // Map to store connected devices
-  const connectedDevices = new Map<string, WebSocket>();
-
   const findBestDeviceForOwner = async (db: any, ownerUid: string) => {
     const onlineSnapshot = await db.collection("devices")
       .where("ownerUid", "==", ownerUid)
@@ -1614,7 +1826,7 @@ async function startServer() {
                 deviceData.ownerUid = storedOwnerUid;
               }
 
-              deviceRef.set(deviceData, { merge: true })
+              persistDevicePresence(db, deviceId, deviceData, { force: true })
                 .catch(err => console.error("Error updating device status:", err));
             }
           }
@@ -1625,14 +1837,23 @@ async function startServer() {
             ws.send(JSON.stringify({ type: "heartbeat_ack" }));
             
             if (adminApp) {
-              adminApp.firestore().collection("devices").doc(deviceId).update({
-                lastSeen: admin.firestore.FieldValue.serverTimestamp(),
-                batteryLevel: data.batteryLevel || 100,
-                status: "online"
-              }).catch(err => console.error("Error updating heartbeat:", err));
+              persistDevicePresence(
+                adminApp.firestore(),
+                deviceId,
+                {
+                  status: "online",
+                  batteryLevel: data.batteryLevel,
+                  model: data.model,
+                  fcmToken: data.fcmToken,
+                  ownerUid,
+                },
+              ).catch(err => console.error("Error updating heartbeat:", err));
             }
           }
         } else if (data.type === "ping") {
+          if (deviceId) {
+            lastHeartbeat.set(deviceId, Date.now());
+          }
           ws.send(JSON.stringify({ type: "pong", ts: Date.now() }));
         } else if (data.task === "DEVICE_INFO") {
           // Already handled above
@@ -1766,15 +1987,14 @@ async function startServer() {
         const adminApp = getFirebaseAdmin();
         if (adminApp) {
           try {
-            await adminApp.firestore()
-              .collection("devices")
-              .doc(deviceId)
-              .update({
+            await persistDevicePresence(
+              adminApp.firestore(),
+              deviceId,
+              {
                 status: "offline",
-                offline_reason: "Heartbeat timeout - no activity for 2+ minutes",
-                last_status_change: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              })
+              },
+              { force: true },
+            )
               .catch(err => {
                 console.error(`[Stale Device Check] Error updating device ${deviceId}:`, err);
               });

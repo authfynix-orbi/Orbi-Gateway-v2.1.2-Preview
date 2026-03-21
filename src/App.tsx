@@ -8,12 +8,11 @@ import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User 
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth, isFirebaseConfigured } from './firebase';
 import { FcGoogle } from 'react-icons/fc';
-import { MessageSquare, ChevronRight, Activity, Smartphone, Users, LogOut, LayoutDashboard, AlertCircle, Send, Menu, X } from 'lucide-react';
+import { MessageSquare, ChevronRight, Smartphone, Users, LogOut, LayoutDashboard, AlertCircle, Send, Menu, X } from 'lucide-react';
 import TemplateManager from './components/TemplateManager';
 import DeviceManager from './components/DeviceManager';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
-import ActivityLogs from './components/ActivityLogs';
 import MessageTracker from './components/MessageTracker';
 import UserManager from './components/UserManager';
 
@@ -68,7 +67,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 const LOGO_URL = "https://limcgmcytzvotxhthqiu.supabase.co/storage/v1/object/public/PLATFROM%20STOCKS/Platform%20Logos/OBI_ICON_WATERMARK.png";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'templates' | 'logs' | 'devices' | 'users' | 'settings' | 'messages'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'templates' | 'devices' | 'users' | 'settings' | 'messages'>('dashboard');
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'user' | null>(null);
   const [loading, setLoading] = useState(true);
@@ -178,12 +177,6 @@ export default function App() {
         return (
           <ErrorBoundary>
             <DeviceManager />
-          </ErrorBoundary>
-        );
-      case 'logs':
-        return (
-          <ErrorBoundary>
-            <ActivityLogs />
           </ErrorBoundary>
         );
       case 'users':
@@ -368,19 +361,6 @@ export default function App() {
             {activeTab === 'messages' && <ChevronRight className="w-4 h-4 ml-auto" />}
           </button>
           
-          <button 
-            onClick={() => { setActiveTab('logs'); setIsMobileMenuOpen(false); }}
-            className={`tab-button ${
-              activeTab === 'logs' 
-                ? 'tab-button-active' 
-                : 'tab-button-idle'
-            }`}
-          >
-            <Activity className="w-5 h-5" />
-            Activity
-            {activeTab === 'logs' && <ChevronRight className="w-4 h-4 ml-auto" />}
-          </button>
-
           <button 
             onClick={() => { setActiveTab('devices'); setIsMobileMenuOpen(false); }}
             className={`tab-button ${

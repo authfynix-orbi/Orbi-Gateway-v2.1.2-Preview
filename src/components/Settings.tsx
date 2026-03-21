@@ -164,7 +164,7 @@ export default function Settings() {
     setStatus(null);
 
     try {
-      const collections = ['message_logs', 'devices', 'message_templates', 'activity_logs', 'api_credentials'];
+      const collections = ['message_logs', 'devices', 'message_templates', 'api_credentials'];
       let totalDeleted = 0;
 
       for (const colName of collections) {

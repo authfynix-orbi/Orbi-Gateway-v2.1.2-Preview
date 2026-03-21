@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { Timestamp, collection, doc, getDoc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import {
   Activity,
@@ -62,6 +62,9 @@ const initialChannelStats: ChannelStat[] = [
   { name: 'Push', value: 0, tone: 'rose' },
 ];
 
+const DASHBOARD_WINDOW_DAYS = 30;
+const DASHBOARD_MESSAGE_LIMIT = 1500;
+
 export default function Dashboard({ user }: { user: User | null }) {
   const [stats, setStats] = useState<DashboardStats>({
     totalMessages: 0,
@@ -88,10 +91,24 @@ export default function Dashboard({ user }: { user: User | null }) {
         const isAdmin =
           (userDoc.exists() && userDoc.data().role === 'admin') ||
           (user.email === 'auth.fynix@gmail.com' && user.emailVerified === true);
+        const cutoffTimestamp = Timestamp.fromDate(
+          new Date(Date.now() - DASHBOARD_WINDOW_DAYS * 24 * 60 * 60 * 1000),
+        );
 
         const messagesQuery = isAdmin
-          ? collection(db, 'message_logs')
-          : query(collection(db, 'message_logs'), where('createdBy', '==', user.uid));
+          ? query(
+              collection(db, 'message_logs'),
+              where('timestamp', '>=', cutoffTimestamp),
+              orderBy('timestamp', 'desc'),
+              limit(DASHBOARD_MESSAGE_LIMIT),
+            )
+          : query(
+              collection(db, 'message_logs'),
+              where('createdBy', '==', user.uid),
+              where('timestamp', '>=', cutoffTimestamp),
+              orderBy('timestamp', 'desc'),
+              limit(DASHBOARD_MESSAGE_LIMIT),
+            );
 
         unsubscribeMessages = onSnapshot(
           messagesQuery,
@@ -210,8 +227,8 @@ export default function Dashboard({ user }: { user: User | null }) {
               Command visibility for delivery, queue pressure, and gateway readiness.
             </h1>
             <p className="section-subcopy max-w-2xl">
-              The dashboard is now focused on operating metrics only. Detailed event history remains on the
-              dedicated Activity page where it belongs.
+              The dashboard is focused on recent operating metrics only, using a bounded live window so the
+              console stays fast as message volume grows.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
@@ -263,11 +280,11 @@ export default function Dashboard({ user }: { user: User | null }) {
           <div className="rounded-3xl border border-slate-200 bg-slate-50/90 p-5">
             <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">Operator note</p>
             <p className="mt-3 text-sm font-medium leading-6 text-slate-600">
-              Use the Activity view for event-level forensics. This dashboard stays intentionally focused on
-              KPI visibility and operational status.
+              This board tracks the latest {DASHBOARD_WINDOW_DAYS} days of traffic and keeps the live dataset
+              intentionally bounded for enterprise-scale responsiveness.
             </p>
             <div className="mt-4 inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
-              Review activity stream
+              Recent operations window
               <ArrowRight className="h-3.5 w-3.5" />
             </div>
           </div>
@@ -424,7 +441,7 @@ export default function Dashboard({ user }: { user: User | null }) {
             <div className="mt-6 space-y-4">
               <GovernanceItem
                 title="Investigate failures first"
-                detail="Exception volume is visible here, but event-level timelines stay on the Activity page."
+                detail="Exception volume is visible here, and the recent-window tracker gives operators fast access to the latest actionable records."
               />
               <GovernanceItem
                 title="Watch queue pressure"
