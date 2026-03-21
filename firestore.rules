@@ -118,13 +118,28 @@ service cloud.firestore {
       return !('createdBy' in request.resource.data) || request.resource.data.createdBy == resource.data.createdBy;
     }
 
+    function isValidTemplateComponent(component) {
+      return component is map &&
+             component.keys().hasOnly(['type', 'text']) &&
+             component.type is string &&
+             component.type.size() > 0 &&
+             component.type.size() < 50 &&
+             (!('text' in component) || (component.text is string && component.text.size() < 1000));
+    }
+
     function isValidTemplate() {
-      return hasOnlyAllowedFields(['name', 'channel', 'language', 'subject', 'body', 'messageType', 'createdBy', 'createdAt']) &&
+      return hasOnlyAllowedFields(['name', 'channel', 'language', 'subject', 'body', 'components', 'messageType', 'createdBy', 'createdAt']) &&
              request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() < 255 &&
              request.resource.data.channel in ['sms', 'whatsapp', 'email', 'push'] &&
              request.resource.data.language is string && request.resource.data.language.size() > 0 && request.resource.data.language.size() < 10 &&
              (!('subject' in request.resource.data) || (request.resource.data.subject is string && request.resource.data.subject.size() < 255)) &&
              request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() < 1000 &&
+             (!('components' in request.resource.data) || (
+               request.resource.data.components is list &&
+               request.resource.data.components.size() > 0 &&
+               request.resource.data.components.size() < 20 &&
+               request.resource.data.components.all(component, isValidTemplateComponent(component))
+             )) &&
              request.resource.data.messageType in ['transactional', 'promotional'] &&
              request.resource.data.createdBy is string && request.resource.data.createdBy.size() > 0 && request.resource.data.createdBy.size() < 255 &&
              request.resource.data.createdAt is timestamp;

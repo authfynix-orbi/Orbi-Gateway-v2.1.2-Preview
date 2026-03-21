@@ -182,6 +182,38 @@ function buildLiveDeviceStatus(deviceId: string, isSocketConnected: boolean) {
   };
 }
 
+function renderTemplateContent(template: any, data: Record<string, unknown> | undefined) {
+  let parsedBody = typeof template?.body === "string" ? template.body : "";
+  const components = Array.isArray(template?.components) ? template.components : [];
+
+  if (!parsedBody && components.length > 0) {
+    parsedBody = components
+      .map((component: any) => (typeof component?.text === "string" ? component.text : ""))
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  const replaceTokens = (input: string) => {
+    let output = input;
+    if (data && typeof data === "object") {
+      for (const [key, value] of Object.entries(data)) {
+        output = output.replace(new RegExp(`{{${key}}}`, "g"), String(value));
+      }
+    }
+    return output;
+  };
+
+  const renderedComponents = components.map((component: any) => ({
+    ...component,
+    text: typeof component?.text === "string" ? replaceTokens(component.text) : component?.text,
+  }));
+
+  return {
+    body: replaceTokens(parsedBody),
+    components: renderedComponents,
+  };
+}
+
 async function persistDevicePresence(
   db: FirebaseFirestore.Firestore,
   deviceId: string,
@@ -1318,14 +1350,11 @@ async function startServer() {
       }
 
       const template = snapshot.docs[0].data();
-      let parsedBody = template.body;
-
-      // Replace variables
-      if (data && typeof data === 'object') {
-        for (const [key, value] of Object.entries(data)) {
-          parsedBody = parsedBody.replace(new RegExp(`{{${key}}}`, 'g'), String(value));
-        }
-      }
+      const renderedTemplate = renderTemplateContent(
+        template,
+        data && typeof data === "object" ? data as Record<string, unknown> : undefined,
+      );
+      const parsedBody = renderedTemplate.body;
 
       // Determine device to use
       let targetDeviceId = deviceId;
@@ -1387,6 +1416,9 @@ async function startServer() {
             body: parsedBody,
             status: "pending",
             channel,
+            ...(renderedTemplate.components.length > 0
+              ? { components: renderedTemplate.components }
+              : {}),
             messageType: messageType || template.messageType || "transactional",
             createdBy: resolvedOwnerUid,
             source: messageSource,
@@ -1415,6 +1447,9 @@ async function startServer() {
           body: parsedBody,
           status: "pending",
           channel,
+          ...(renderedTemplate.components.length > 0
+            ? { components: renderedTemplate.components }
+            : {}),
           messageType: messageType || template.messageType || "transactional",
           createdBy: resolvedOwnerUid,
           source: messageSource,
@@ -1449,7 +1484,10 @@ async function startServer() {
           id: messageId,
           recipient,
           body: parsedBody,
-          channel
+          channel,
+          ...(renderedTemplate.components.length > 0
+            ? { components: renderedTemplate.components }
+            : {}),
         });
         
         if (pushed) {

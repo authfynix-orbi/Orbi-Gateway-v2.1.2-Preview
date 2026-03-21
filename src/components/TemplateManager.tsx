@@ -47,9 +47,85 @@ interface Template {
   language: string;
   subject?: string;
   body: string;
+  components?: Array<{
+    type: string;
+    text?: string;
+  }>;
   messageType: 'transactional' | 'promotional';
   createdAt: any;
 }
+
+type TemplateComponent = {
+  type: string;
+  text?: string;
+};
+
+const normalizeTemplateComponents = (components: unknown): TemplateComponent[] => {
+  if (!Array.isArray(components)) return [];
+
+  return components
+    .filter((component): component is TemplateComponent => Boolean(component) && typeof component === 'object')
+    .map((component: any) => ({
+      type: String(component.type ?? '').trim(),
+      text: typeof component.text === 'string' ? component.text.trim() : '',
+    }))
+    .filter((component) => component.type);
+};
+
+const buildTemplatePayload = ({
+  name,
+  language,
+  subject,
+  body,
+  channel,
+  messageType,
+  components,
+}: {
+  name: string;
+  language: string;
+  subject: string;
+  body: string;
+  channel: Template['channel'];
+  messageType: Template['messageType'];
+  components: TemplateComponent[];
+}) => {
+  const trimmedBody = body.trim();
+  const normalizedComponents = normalizeTemplateComponents(components);
+  const templateData: {
+    name: string;
+    language: string;
+    subject: string;
+    body: string;
+    channel: Template['channel'];
+    messageType: Template['messageType'];
+    components?: TemplateComponent[];
+  } = {
+    name: name.trim(),
+    language: language.trim(),
+    subject: subject.trim(),
+    body: trimmedBody,
+    channel,
+    messageType,
+  };
+
+  if (channel === 'whatsapp') {
+    const nextComponents = normalizedComponents.length > 0
+      ? normalizedComponents.map((component) => (
+          component.type === 'body'
+            ? { ...component, text: trimmedBody }
+            : component
+        ))
+      : [{ type: 'body', text: trimmedBody }];
+
+    if (!nextComponents.some((component) => component.type === 'body')) {
+      nextComponents.unshift({ type: 'body', text: trimmedBody });
+    }
+
+    templateData.components = nextComponents;
+  }
+
+  return templateData;
+};
 
 export default function TemplateManager() {
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -65,6 +141,7 @@ export default function TemplateManager() {
   const [newBody, setNewBody] = useState('');
   const [newChannel, setNewChannel] = useState<'sms' | 'whatsapp' | 'email' | 'push'>('sms');
   const [newMessageType, setNewMessageType] = useState<'transactional' | 'promotional'>('transactional');
+  const [newComponents, setNewComponents] = useState<TemplateComponent[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
 
@@ -173,14 +250,24 @@ export default function TemplateManager() {
         
         const batch = writeBatch(db);
         templatesToImport.forEach((t: any) => {
-          const normalizedTemplate = {
+          const components = normalizeTemplateComponents(t?.components);
+          const derivedBody = components
+            .filter((component) => component.text)
+            .map((component) => component.text)
+            .join('\n\n')
+            .trim();
+          const normalizedTemplate = buildTemplatePayload({
             name: String(t?.name ?? '').trim(),
             language: String(t?.language ?? 'en').trim() || 'en',
             subject: typeof t?.subject === 'string' ? t.subject : '',
-            body: String(t?.body ?? '').trim(),
+            body: String(t?.body ?? '').trim() || derivedBody,
             channel: t?.channel,
-            messageType: t?.messageType,
-          };
+            components,
+            messageType:
+              t?.messageType === 'promotional' || t?.messageType === 'transactional'
+                ? t.messageType
+                : 'transactional',
+          });
           if (
             !normalizedTemplate.name ||
             !normalizedTemplate.body ||
@@ -313,14 +400,15 @@ export default function TemplateManager() {
 
     setIsSubmitting(true);
     try {
-      const templateData = {
-        name: newName, // This is the identifier the backend uses
+      const templateData = buildTemplatePayload({
+        name: newName,
         language: newLanguage,
         subject: newSubject,
         body: newBody,
         channel: newChannel,
-        messageType: newMessageType
-      };
+        messageType: newMessageType,
+        components: newComponents,
+      });
 
       if (editingTemplateId) {
         await updateDoc(doc(db, 'message_templates', editingTemplateId), templateData);
@@ -348,6 +436,7 @@ export default function TemplateManager() {
     setNewBody('');
     setNewChannel('sms');
     setNewMessageType('transactional');
+    setNewComponents([]);
     setEditingTemplateId(null);
   };
 
@@ -358,6 +447,7 @@ export default function TemplateManager() {
     setNewBody(template.body);
     setNewChannel(template.channel);
     setNewMessageType(template.messageType);
+    setNewComponents(normalizeTemplateComponents(template.components));
     setEditingTemplateId(template.id);
     setIsModalOpen(true);
   };
@@ -369,6 +459,7 @@ export default function TemplateManager() {
     setNewBody(template.body);
     setNewChannel(template.channel);
     setNewMessageType(template.messageType);
+    setNewComponents(normalizeTemplateComponents(template.components));
     setEditingTemplateId(null);
     setIsModalOpen(true);
   };
