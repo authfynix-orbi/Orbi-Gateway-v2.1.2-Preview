@@ -2276,6 +2276,7 @@ async function startServer() {
         message: {
           id: messageData.id,
           messageId: messageData.id,
+          task: "SEND_SMS",
           phone: messageData.recipient,
           message: messageData.body,
           recipient: messageData.recipient,
