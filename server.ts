@@ -214,6 +214,107 @@ function renderTemplateContent(template: any, data: Record<string, unknown> | un
   };
 }
 
+function normalizeImportedTemplateComponents(components: unknown) {
+  if (!Array.isArray(components)) {
+    return [];
+  }
+
+  return components
+    .filter((component) => component && typeof component === "object")
+    .map((component: any) => ({
+      type: typeof component?.type === "string" ? component.type.trim() : "",
+      text: typeof component?.text === "string" ? component.text.trim() : "",
+    }))
+    .filter((component) => component.type);
+}
+
+function normalizeImportedTemplate(input: any) {
+  const components = normalizeImportedTemplateComponents(input?.components);
+  const derivedBody = components
+    .map((component) => component.text)
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+  const body = typeof input?.body === "string" ? input.body.trim() : "";
+  const normalizedBody = body || derivedBody;
+  const normalizedChannel = typeof input?.channel === "string" ? input.channel.trim() : "";
+  const normalizedMessageType = input?.messageType === "promotional" ? "promotional" : "transactional";
+  const normalizedTemplate: Record<string, unknown> = {
+    name: typeof input?.name === "string" ? input.name.trim() : "",
+    language: typeof input?.language === "string" && input.language.trim() ? input.language.trim() : "en",
+    subject: typeof input?.subject === "string" ? input.subject.trim() : "",
+    body: normalizedBody,
+    channel: normalizedChannel,
+    messageType: normalizedMessageType,
+  };
+
+  if (normalizedChannel === "whatsapp") {
+    const nextComponents = components.length > 0
+      ? components.map((component) => (
+          component.type === "body"
+            ? { ...component, text: normalizedBody }
+            : component
+        ))
+      : [{ type: "body", text: normalizedBody }];
+
+    if (!nextComponents.some((component) => component.type === "body")) {
+      nextComponents.unshift({ type: "body", text: normalizedBody });
+    }
+
+    normalizedTemplate.components = nextComponents;
+  }
+
+  return normalizedTemplate;
+}
+
+function validateImportedTemplate(template: Record<string, unknown>) {
+  if (typeof template.name !== "string" || !template.name || template.name.length >= 255) {
+    return "Template name is required";
+  }
+
+  if (typeof template.channel !== "string" || !["sms", "whatsapp", "email", "push"].includes(template.channel)) {
+    return "Template channel must be one of sms, whatsapp, email, or push";
+  }
+
+  if (typeof template.language !== "string" || !template.language || template.language.length >= 10) {
+    return "Template language is required";
+  }
+
+  if (typeof template.body !== "string" || !template.body || template.body.length >= 1000) {
+    return "Template body is required";
+  }
+
+  if (template.subject != null && (typeof template.subject !== "string" || template.subject.length >= 255)) {
+    return "Template subject is invalid";
+  }
+
+  if (template.messageType !== "transactional" && template.messageType !== "promotional") {
+    return "Template messageType must be transactional or promotional";
+  }
+
+  if (template.components != null) {
+    if (!Array.isArray(template.components) || template.components.length === 0 || template.components.length >= 20) {
+      return "Template components are invalid";
+    }
+
+    for (const component of template.components) {
+      if (!component || typeof component !== "object") {
+        return "Template components are invalid";
+      }
+      const componentType = typeof (component as any).type === "string" ? (component as any).type : "";
+      const componentText = (component as any).text;
+      if (!componentType || componentType.length >= 50) {
+        return "Template component type is invalid";
+      }
+      if (componentText != null && (typeof componentText !== "string" || componentText.length >= 1000)) {
+        return "Template component text is invalid";
+      }
+    }
+  }
+
+  return null;
+}
+
 async function persistDevicePresence(
   db: FirebaseFirestore.Firestore,
   deviceId: string,
@@ -828,6 +929,54 @@ async function startServer() {
     } catch (error) {
       console.error("Failed to revoke API credential:", error);
       return res.status(500).json({ error: "Failed to revoke API credential" });
+    }
+  });
+
+  app.post("/api/templates/import", requireFirebaseUser, async (req: any, res) => {
+    try {
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(500).json({ error: "Firebase Admin is not configured" });
+      }
+
+      const templates = Array.isArray(req.body?.templates) ? req.body.templates : [];
+      if (templates.length === 0) {
+        return res.status(400).json({ error: "At least one template is required" });
+      }
+      if (templates.length > 500) {
+        return res.status(400).json({ error: "Too many templates in one import request" });
+      }
+
+      const db = adminApp.firestore();
+      const batch = db.batch();
+      let importedCount = 0;
+
+      for (let index = 0; index < templates.length; index += 1) {
+        const normalizedTemplate = normalizeImportedTemplate(templates[index]);
+        const validationError = validateImportedTemplate(normalizedTemplate);
+        if (validationError) {
+          return res.status(400).json({
+            error: `Template ${index + 1} failed validation: ${validationError}`,
+          });
+        }
+
+        const docRef = db.collection("message_templates").doc();
+        batch.set(docRef, {
+          ...normalizedTemplate,
+          createdBy: req.firebaseUser.uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        importedCount += 1;
+      }
+
+      await batch.commit();
+      return res.status(201).json({
+        success: true,
+        importedCount,
+      });
+    } catch (error) {
+      console.error("Failed to import templates:", error);
+      return res.status(500).json({ error: "Failed to import templates" });
     }
   });
 

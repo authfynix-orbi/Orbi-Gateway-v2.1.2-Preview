@@ -247,48 +247,27 @@ export default function TemplateManager() {
       try {
         const importedData = JSON.parse(event.target?.result as string);
         const templatesToImport = Array.isArray(importedData) ? importedData : [importedData];
-        
-        const batch = writeBatch(db);
-        templatesToImport.forEach((t: any) => {
-          const components = normalizeTemplateComponents(t?.components);
-          const derivedBody = components
-            .filter((component) => component.text)
-            .map((component) => component.text)
-            .join('\n\n')
-            .trim();
-          const normalizedTemplate = buildTemplatePayload({
-            name: String(t?.name ?? '').trim(),
-            language: String(t?.language ?? 'en').trim() || 'en',
-            subject: typeof t?.subject === 'string' ? t.subject : '',
-            body: String(t?.body ?? '').trim() || derivedBody,
-            channel: t?.channel,
-            components,
-            messageType:
-              t?.messageType === 'promotional' || t?.messageType === 'transactional'
-                ? t.messageType
-                : 'transactional',
-          });
-          if (
-            !normalizedTemplate.name ||
-            !normalizedTemplate.body ||
-            !['sms', 'whatsapp', 'email', 'push'].includes(normalizedTemplate.channel) ||
-            !['transactional', 'promotional'].includes(normalizedTemplate.messageType)
-          ) {
-            throw new Error(`Invalid template payload for ${normalizedTemplate.name || 'unnamed template'}`);
-          }
-          const newDocRef = doc(collection(db, 'message_templates'));
-          batch.set(newDocRef, {
-            ...normalizedTemplate,
-            createdBy: auth.currentUser!.uid,
-            createdAt: serverTimestamp()
-          });
+
+        const token = await auth.currentUser.getIdToken();
+        const response = await fetch('/api/templates/import', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            templates: templatesToImport,
+          }),
         });
-        
-        await batch.commit();
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || 'Failed to import templates');
+        }
+
         setFeedback({ message: `Successfully imported ${templatesToImport.length} templates!`, type: 'success' });
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error importing templates:", error);
-        setFeedback({ message: "Failed to import templates. Please check the file format.", type: 'error' });
+        setFeedback({ message: error?.message || "Failed to import templates.", type: 'error' });
       }
     };
     reader.readAsText(file);
