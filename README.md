@@ -1,6 +1,6 @@
-# Orbi-Gateway-v2.1.1-Stable-Preview
+# Orbi-Gateway-v2.1.2-Preview
 
-The ORBI Gateway System is an event-driven backend and admin portal for routing SMS and notification workloads through paired Android gateway devices, while also supporting WhatsApp, Email, and Push workflows.
+The ORBI Gateway System is an event-driven backend and admin portal for routing SMS and notification workloads through paired Android gateway devices, while also supporting WhatsApp, Email, and template-managed messaging flows.
 
 ## Core Flow
 
@@ -18,6 +18,7 @@ The ORBI Gateway System is an event-driven backend and admin portal for routing 
 - Admin activity tracking and queue visibility
 - Template-driven notification dispatch
 - Inbound SMS forwarding back into the admin message portal
+- Backend-compatible routes for template catalog lookup and direct SMS fallback
 
 ## Local Run
 
