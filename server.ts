@@ -303,6 +303,30 @@ function normalizeImportedTemplate(input: any) {
   return normalizedTemplate;
 }
 
+function extractTemplateVariables(template: Record<string, unknown>) {
+  const values: string[] = [];
+  const capture = (input: unknown) => {
+    if (typeof input !== "string") return;
+    const matches = input.match(/\{\{(.*?)\}\}/g) || [];
+    for (const match of matches) {
+      const normalized = match.replace(/[{}]/g, "").trim();
+      if (normalized) {
+        values.push(normalized);
+      }
+    }
+  };
+
+  capture(template.subject);
+  capture(template.body);
+  if (Array.isArray(template.components)) {
+    for (const component of template.components) {
+      capture((component as any)?.text);
+    }
+  }
+
+  return Array.from(new Set(values)).sort();
+}
+
 function validateImportedTemplate(template: Record<string, unknown>) {
   if (typeof template.name !== "string" || !template.name || template.name.length >= 255) {
     return "Template name is required";
@@ -1118,6 +1142,68 @@ async function startServer() {
     }
   });
 
+  app.get("/api/templates/catalog", authenticateFirebaseUserIfPresent, authenticateExternalRequest, requireAuthenticatedSender, requireCredentialScope(["send_template"]), async (req: any, res) => {
+    try {
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(503).json({ error: "Firebase Admin is not configured" });
+      }
+
+      const db = adminApp.firestore();
+      const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+      const channel = typeof req.query.channel === "string" ? req.query.channel.trim() : "";
+      const language = typeof req.query.language === "string" ? req.query.language.trim() : "";
+      const messageType = typeof req.query.messageType === "string" ? req.query.messageType.trim() : "";
+      const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 200);
+
+      let query: any = db.collection("message_templates").limit(limit);
+      const ownerUid =
+        req.externalAuth?.authType === "trusted_system"
+          ? normalizeOptionalString(process.env.OBI_GATEWAY_USER_ID)
+          : (req.externalAuth?.ownerUid || req.firebaseUser?.uid || null);
+
+      if (ownerUid) {
+        query = query.where("createdBy", "==", ownerUid);
+      }
+      if (channel) {
+        query = query.where("channel", "==", channel);
+      }
+      if (language) {
+        query = query.where("language", "==", language);
+      }
+      if (messageType) {
+        query = query.where("messageType", "==", messageType);
+      }
+
+      const snapshot = await query.get();
+      let data = snapshot.docs.map((doc) => {
+        const entry = doc.data() || {};
+        return {
+          id: doc.id,
+          name: entry.name,
+          channel: entry.channel,
+          language: entry.language || "en",
+          messageType: entry.messageType || "transactional",
+          subject: entry.subject || "",
+          body: entry.body || "",
+          variables: extractTemplateVariables(entry),
+        };
+      });
+
+      if (search) {
+        data = data.filter((item) => String(item.name || "").toLowerCase().includes(search));
+      }
+
+      data.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      return res.json({ success: true, data });
+    } catch (error) {
+      logErrorTrace("templates.catalog.failed", error, {
+        authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous"),
+      });
+      return res.status(500).json({ error: "Failed to fetch template catalog" });
+    }
+  });
+
   app.get("/api/pairing-config", requireFirebaseUser, async (req: any, res) => {
     try {
       const protocolHeader = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
@@ -1893,9 +1979,25 @@ async function startServer() {
     }
   });
 
-  // Direct Send API (Raw SMS without templates)
-  app.post("/api/messages/send", authenticateFirebaseUserIfPresent, authenticateExternalRequest, requireAuthenticatedSender, requireCredentialScope(["send_sms"]), async (req: any, res) => {
-    const { recipient, body, channel = "sms", ownerUid, ownerEmail, deviceId, messageType = "transactional", requestId } = req.body;
+  const handleDirectMessageRequest = async (
+    req: any,
+    res: any,
+    options: {
+      channelOverride?: "sms" | "email" | "push" | "whatsapp";
+      requireTemplateChannel?: "email" | "push" | "whatsapp";
+    } = {},
+  ) => {
+    const {
+      recipient,
+      body,
+      channel: rawChannel = "sms",
+      ownerUid,
+      ownerEmail,
+      deviceId,
+      messageType = "transactional",
+      requestId,
+    } = req.body;
+    const channel = options.channelOverride || rawChannel;
     logTrace("send_message.request", {
       recipient,
       channel,
@@ -1910,6 +2012,13 @@ async function startServer() {
 
     if (!recipient || !body) {
       return res.status(400).json({ error: "recipient and body are required" });
+    }
+
+    if (options.requireTemplateChannel) {
+      return res.status(400).json({
+        error: `${options.requireTemplateChannel.toUpperCase()}_TEMPLATE_REQUIRED`,
+        message: `Direct ${options.requireTemplateChannel} delivery is not supported on this endpoint. Use /api/send-template with channel='${options.requireTemplateChannel}'.`,
+      });
     }
 
     try {
@@ -2124,7 +2233,54 @@ async function startServer() {
       });
       res.status(500).json({ error: "Failed to send message" });
     }
-  });
+  };
+
+  // Direct Send API (Raw SMS without templates)
+  app.post(
+    "/api/messages/send",
+    authenticateFirebaseUserIfPresent,
+    authenticateExternalRequest,
+    requireAuthenticatedSender,
+    requireCredentialScope(["send_sms"]),
+    async (req: any, res) => handleDirectMessageRequest(req, res),
+  );
+
+  // Compatibility endpoint expected by ORBI Backend for direct SMS.
+  app.post(
+    "/api/send-sms",
+    authenticateFirebaseUserIfPresent,
+    authenticateExternalRequest,
+    requireAuthenticatedSender,
+    requireCredentialScope(["send_sms"]),
+    async (req: any, res) =>
+      handleDirectMessageRequest(req, res, { channelOverride: "sms" }),
+  );
+
+  // Email must stay template-driven; expose compatibility endpoint with clear guidance.
+  app.post(
+    "/api/send-email",
+    authenticateFirebaseUserIfPresent,
+    authenticateExternalRequest,
+    requireAuthenticatedSender,
+    requireCredentialScope(["send_email", "send_template"]),
+    async (req: any, res) =>
+      handleDirectMessageRequest(req, res, { requireTemplateChannel: "email" }),
+  );
+
+  // Native app push moved into ORBI Backend; keep compatibility endpoint explicit.
+  app.post(
+    "/api/send-push",
+    authenticateFirebaseUserIfPresent,
+    authenticateExternalRequest,
+    requireAuthenticatedSender,
+    requireCredentialScope(["send_push", "send_template"]),
+    async (_req: any, res) =>
+      res.status(410).json({
+        error: "PUSH_DELIVERY_MOVED",
+        message:
+          "Mobile push delivery is handled directly by ORBI Backend via Firebase Admin. Use /api/send-template only for gateway-managed channels.",
+      }),
+  );
 
   // Hard Resend API (Retry failed or stuck queued messages)
   app.post("/api/messages/resend", authenticateFirebaseUserIfPresent, authenticateExternalRequest, requireAuthenticatedSender, async (req: any, res) => {
