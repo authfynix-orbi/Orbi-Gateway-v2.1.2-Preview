@@ -761,9 +761,6 @@ async function startServer() {
   app.get("/health", (req, res) => {
     res.json(buildHealthPayload());
   });
-  app.get("/heath", (req, res) => {
-    res.json(buildHealthPayload());
-  });
 
   // Device status endpoint for debugging
   app.get('/api/devices/status/:deviceId', async (req, res) => {
@@ -2852,14 +2849,14 @@ async function startServer() {
         if (keepAliveApiKey) {
           headers["x-api-key"] = keepAliveApiKey;
         }
-        const response = await fetch(`${normalizedBaseUrl}/heath`, {
+        const response = await fetch(`${normalizedBaseUrl}/health`, {
           headers,
         });
         if (!response.ok) {
-          console.warn(`[Self Keepalive] heath returned HTTP ${response.status}`);
+          console.warn(`[Self Keepalive] health returned HTTP ${response.status}`);
         }
       } catch (error) {
-        console.error("[Self Keepalive] Failed to call heath:", error);
+        console.error("[Self Keepalive] Failed to call health:", error);
       }
     }, keepAliveIntervalMs);
   } else {
