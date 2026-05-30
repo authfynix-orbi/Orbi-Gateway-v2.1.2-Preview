@@ -278,11 +278,11 @@ export default function Dashboard({ user }: { user: User | null }) {
               Executive Overview
             </p>
             <h1 className="display-heading max-w-3xl text-[1.9rem] md:text-[2.45rem]">
-              Command visibility for delivery, queue pressure, and gateway readiness.
+              Command visibility for ORBI Talk delivery, queue pressure, and relay readiness.
             </h1>
             <p className="section-subcopy max-w-2xl">
-              The dashboard is focused on recent operating metrics only, using a bounded live window so the
-              console stays fast as message volume grows.
+              ORBI Talk Gateway receives trusted template requests from ORBI Core, assigns work to paired Android
+              relays, and tracks delivery outcomes without exposing customer messaging secrets to operators.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
@@ -299,9 +299,9 @@ export default function Dashboard({ user }: { user: User | null }) {
               icon={<Clock3 className="h-4 w-4" />}
             />
             <HeroMetric
-              label="Live gateways"
+              label="Live relays"
               value={stats.activeDevices.toLocaleString()}
-              detail="Connected devices available for assignment"
+              detail="Paired Android devices available for assignment"
               icon={<Smartphone className="h-4 w-4" />}
             />
           </div>
@@ -502,8 +502,8 @@ export default function Dashboard({ user }: { user: User | null }) {
                 detail="Pending or processing growth is the earliest signal of dispatch or device assignment issues."
               />
               <GovernanceItem
-                title="Validate live fleet"
-                detail="A healthy dashboard still depends on at least one online gateway for each owner scope."
+                title="Validate live relay fleet"
+                detail="A healthy delivery plane requires at least one online Android relay for each owner scope."
               />
             </div>
           </div>

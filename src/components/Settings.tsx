@@ -62,6 +62,14 @@ export default function Settings() {
     [],
   );
 
+  const sampleCurl = useMemo(
+    () => `curl -X POST https://talk.orbifinancial.com/api/send-template \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: $ORBI_TALK_GATEWAY_API_KEY" \\
+  -d '${sampleTemplatePayload.replace(/'/g, "'\\''")}'`,
+    [sampleTemplatePayload],
+  );
+
   useEffect(() => {
     loadCredentials();
   }, []);
@@ -203,7 +211,7 @@ export default function Settings() {
       <div>
         <h1 className="text-3xl font-black tracking-tight text-slate-900">System Settings</h1>
         <p className="font-medium text-slate-500">
-          Manage ownership metadata, external API credentials, and administrative actions.
+          Manage ownership metadata, backend API credentials, ORBI Core connection rules, and administrative actions.
         </p>
       </div>
 
@@ -358,6 +366,21 @@ export default function Settings() {
             </div>
 
             <div className="space-y-5 p-8">
+              <div className="grid gap-4 md:grid-cols-3">
+                <RuleCard
+                  title="Public host"
+                  detail="Use https://talk.orbifinancial.com as the canonical ORBI Talk Gateway URL."
+                />
+                <RuleCard
+                  title="Core env"
+                  detail="Set ORBI_TALK_GATEWAY_URL and ORBI_TALK_GATEWAY_API_KEY on ORBI Core only."
+                />
+                <RuleCard
+                  title="Secret boundary"
+                  detail="Never place Talk Gateway API keys in mobile apps, browser UI, logs, or templates."
+                />
+              </div>
+
               <div className="rounded-3xl border border-slate-200 bg-slate-950 p-6 text-slate-100">
                 <div className="mb-4 flex items-center justify-between">
                   <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
@@ -376,10 +399,28 @@ export default function Settings() {
                 </pre>
               </div>
 
+              <div className="rounded-3xl border border-slate-200 bg-slate-950 p-6 text-slate-100">
+                <div className="mb-4 flex items-center justify-between">
+                  <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
+                    ORBI Core server-side call
+                  </p>
+                  <button
+                    onClick={() => copyText(sampleCurl, 'cURL example')}
+                    className="enterprise-pill enterprise-pill-neutral border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy cURL
+                  </button>
+                </div>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all text-xs leading-6 text-slate-200">
+                  {sampleCurl}
+                </pre>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-3">
                 <RuleCard
                   title="x-api-key"
-                  detail="Required for external requests. Backend resolves owner identity from the issued credential."
+                  detail="Required for external requests. Backend resolves owner identity from issued credentials or trusted Core configuration."
                 />
                 <RuleCard
                   title="requestId"
@@ -387,7 +428,7 @@ export default function Settings() {
                 />
                 <RuleCard
                   title="deviceId"
-                  detail="Optional hard route for a specific owned device. Ownership is still enforced server-side."
+                  detail="Optional hard route for a specific owned relay. Ownership is still enforced server-side."
                 />
               </div>
 
@@ -400,6 +441,18 @@ export default function Settings() {
                   as a user owner. When that master key is used, the request must still include <code>ownerUid</code>,
                   <code>ownerEmail</code>, or <code>deviceId</code> so the backend can attach the message to the correct owner.
                 </p>
+              </div>
+
+              <div className="rounded-3xl border border-cyan-200 bg-cyan-50 p-5">
+                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-cyan-700">
+                  Production rollout guidance
+                </p>
+                <div className="mt-3 grid gap-3 text-sm font-medium leading-6 text-cyan-950 md:grid-cols-2">
+                  <p>Use templates for OTP, transaction, support, and compliance messages.</p>
+                  <p>Always pass <code>requestId</code> from ORBI Core for retry safety.</p>
+                  <p>Keep one online relay before enabling SMS traffic for an owner.</p>
+                  <p>Investigate pending or failed queues before rotating credentials.</p>
+                </div>
               </div>
             </div>
           </div>

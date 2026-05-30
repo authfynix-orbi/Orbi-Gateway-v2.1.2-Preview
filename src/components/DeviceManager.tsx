@@ -3,7 +3,7 @@ import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, Timestamp, wh
 import { db, auth } from '../firebase';
 import { handleFirestoreError, OperationType } from '../firestoreUtils';
 import ConfirmationDialog from './ConfirmationDialog';
-import { Smartphone, Battery, Signal, Clock, Trash2, Shield, AlertCircle, CheckCircle2, X, Download, Link as LinkIcon, FileText, QrCode } from 'lucide-react';
+import { Smartphone, Battery, Signal, Clock, Trash2, Shield, AlertCircle, CheckCircle2, X, Download, Link as LinkIcon, FileText, QrCode, KeyRound, RadioTower, Router, Server } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface Device {
@@ -302,10 +302,14 @@ export default function DeviceManager() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Connected Devices</h1>
-          <p className="text-slate-500 font-medium">Manage your Android SMS sending nodes.</p>
+          <p className="section-kicker">Relay Fleet</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">ORBI Talk Gateway Devices</h1>
+          <p className="max-w-2xl text-slate-500 font-medium">
+            Pair dedicated Android relay phones, keep them online, and route template-driven SMS jobs from ORBI Core
+            through a controlled, auditable delivery plane.
+          </p>
         </div>
         <div className="flex items-center gap-4 enterprise-card px-6 py-3">
           <div className="text-right">
@@ -318,6 +322,29 @@ export default function DeviceManager() {
             <p className="text-xl font-black text-slate-900">{devices.length}</p>
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-4">
+        <ConnectionStep
+          icon={<Server className="h-5 w-5" />}
+          title="1. Host Talk Gateway"
+          detail="Deploy this service at talk.orbifinancial.com with Firebase Admin and ORBI_TALK_GATEWAY_API_KEY configured."
+        />
+        <ConnectionStep
+          icon={<KeyRound className="h-5 w-5" />}
+          title="2. Issue credentials"
+          detail="Create a scoped API key in Settings, or use the server-only trusted key for ORBI Core integration."
+        />
+        <ConnectionStep
+          icon={<QrCode className="h-5 w-5" />}
+          title="3. Pair relays"
+          detail="Install the ORBI Talk APK, scan the QR code, grant SMS/background permissions, and keep the phone powered."
+        />
+        <ConnectionStep
+          icon={<RadioTower className="h-5 w-5" />}
+          title="4. Monitor delivery"
+          detail="Watch socket, heartbeat, queue, sent, delivered, and failed states before scaling traffic."
+        />
       </div>
 
       {loading ? (
@@ -443,7 +470,7 @@ export default function DeviceManager() {
 
       <ConfirmationDialog
         isOpen={deviceToDelete != null}
-        title="Remove gateway device?"
+        title="Remove ORBI Talk relay?"
         message={`This will remove ${deviceToDelete?.name || deviceToDelete?.model || 'this device'} from the console.`}
         confirmLabel="Delete Device"
         cancelLabel="Keep Device"
@@ -453,7 +480,7 @@ export default function DeviceManager() {
         tone="danger"
         effects={[
           'Deletes the device record from the dashboard immediately.',
-          'Prevents this gateway from being selected for new message assignments.',
+          'Prevents this relay from being selected for new message assignments.',
           'Does not uninstall the Android app from the physical phone.',
         ]}
       />
@@ -466,7 +493,7 @@ export default function DeviceManager() {
               <CheckCircle2 className="w-4 h-4 text-indigo-400" />
               <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">System Status: Optimal</span>
             </div>
-            <h2 className="text-3xl font-black tracking-tight leading-tight">Ready to scale your SMS infrastructure?</h2>
+            <h2 className="text-3xl font-black tracking-tight leading-tight">Ready to scale your ORBI Talk delivery plane?</h2>
             <p className="text-slate-400 font-medium">
               Connect multiple Android relay devices to distribute load and ensure high delivery availability. ORBI Talk automatically handles load balancing and failover.
             </p>
@@ -576,8 +603,21 @@ export default function DeviceManager() {
                 <div className="flex gap-4">
                   <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black shrink-0">3</div>
                   <div>
-                    <h3 className="font-bold text-slate-900">Grant Permissions</h3>
-                    <p className="text-sm text-slate-500 mt-1">Allow the app to send SMS messages and run in the background. The device will automatically appear in your dashboard once connected.</p>
+                    <h3 className="font-bold text-slate-900">Grant Permissions and Keep Online</h3>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Allow SMS, phone state, camera, notifications, battery optimization exemption, and background
+                      service access. The relay appears online when WebSocket identification and heartbeat telemetry
+                      are received.
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-3xl border border-cyan-200 bg-cyan-50 p-5">
+                  <p className="text-[11px] font-black uppercase tracking-[0.22em] text-cyan-700">Production checklist</p>
+                  <div className="mt-4 grid gap-3 text-sm font-medium text-cyan-950 md:grid-cols-2">
+                    <p>Use a dedicated SIM and stable data connection.</p>
+                    <p>Keep the relay plugged into power.</p>
+                    <p>Disable aggressive battery/app sleeping policies.</p>
+                    <p>Send a test OTP before enabling live traffic.</p>
                   </div>
                 </div>
               </div>
@@ -627,6 +667,10 @@ export default function DeviceManager() {
                   <code className="block bg-slate-900 text-emerald-400 p-4 rounded-xl text-sm font-mono shadow-inner">
                     POST {window.location.origin}/api/send-template
                   </code>
+                  <p className="mt-4 text-sm font-medium leading-6 text-slate-600">
+                    ORBI Core should call this endpoint from backend services only. Browser apps should never hold
+                    <code> x-api-key </code> or trusted infrastructure secrets.
+                  </p>
                 </div>
 
                 <div className="mt-6">
@@ -664,12 +708,55 @@ export default function DeviceManager() {
                     <h4 className="font-bold text-slate-900 text-sm mb-1">ownerUid</h4>
                     <p className="text-xs text-slate-500">Your unique user ID to authenticate the request and route to your devices.</p>
                   </div>
+                  <div className="enterprise-card p-4">
+                    <h4 className="font-bold text-slate-900 text-sm mb-1">x-api-key</h4>
+                    <p className="text-xs text-slate-500">Required header for ORBI Core or external systems. Store only server-side.</p>
+                  </div>
+                  <div className="enterprise-card p-4">
+                    <h4 className="font-bold text-slate-900 text-sm mb-1">requestId</h4>
+                    <p className="text-xs text-slate-500">Use a stable idempotency/correlation value so retries do not create duplicate jobs.</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-6">
+                  <h3 className="mb-4 flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-900">
+                    <Router className="h-4 w-4" />
+                    Recommended connection order
+                  </h3>
+                  <div className="grid gap-3 text-sm font-medium leading-6 text-slate-600 md:grid-cols-2">
+                    <p>1. Confirm <code>/health</code> returns online from the public domain.</p>
+                    <p>2. Create/import templates before sending production messages.</p>
+                    <p>3. Pair at least one Android relay per operational owner.</p>
+                    <p>4. Send one template test and verify status reaches sent or delivered.</p>
+                    <p>5. Configure ORBI Core with <code>ORBI_TALK_GATEWAY_URL</code>.</p>
+                    <p>6. Monitor failed and pending queues during initial rollout.</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ConnectionStep({
+  icon,
+  title,
+  detail,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <div className="enterprise-card enterprise-card-strong p-5">
+      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">
+        {icon}
+      </div>
+      <p className="text-sm font-black text-slate-950">{title}</p>
+      <p className="mt-2 text-sm font-medium leading-6 text-slate-600">{detail}</p>
     </div>
   );
 }
