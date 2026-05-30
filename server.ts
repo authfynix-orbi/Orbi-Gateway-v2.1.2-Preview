@@ -1210,7 +1210,12 @@ async function startServer() {
       const protocolHeader = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
       const hostHeader = (req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim()
         || req.get("host");
-      const preferredBaseUrl = process.env.PUBLIC_GATEWAY_BASE_URL?.trim() || "";
+      const preferredBaseUrl =
+        process.env.ORBI_TALK_GATEWAY_URL?.trim()
+        || process.env.APP_URL?.trim()
+        || process.env.VITE_APP_URL?.trim()
+        || process.env.PUBLIC_GATEWAY_BASE_URL?.trim()
+        || "";
       const adminApp = getFirebaseAdmin();
       if (!adminApp) {
         return res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -1228,6 +1233,9 @@ async function startServer() {
 
       const parsed = new URL(baseUrl);
       parsed.protocol = parsed.protocol === "http:" ? "ws:" : "wss:";
+      parsed.pathname = "/";
+      parsed.search = "";
+      parsed.hash = "";
       const pairingCode = generatePairingCode();
       await db.collection("device_pairings").doc(pairingCode).set({
         ownerUid: req.firebaseUser.uid,
