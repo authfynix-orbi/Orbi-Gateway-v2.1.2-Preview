@@ -31,10 +31,46 @@ const DEVICE_SENT_COUNT_CACHE_MS = 60 * 1000;
 const STALE_PROCESSING_TIMEOUT_MS = 120000; // Requeue jobs stuck in processing for 2+ minutes
 const STALE_PROCESSING_CHECK_INTERVAL_MS = 30000;
 const STALE_PROCESSING_BATCH_SIZE = 100;
+const CANONICAL_TALK_GATEWAY_BASE_URL = "https://talk.orbifinancial.com";
+const LEGACY_MESSAGING_GATEWAY_HOSTS = new Set([
+  "gateway.orbifinancial.com",
+  "www.gateway.orbifinancial.com",
+]);
 const SERVICE_VERSION = process.env.ORBI_TALK_GATEWAY_VERSION?.trim()
   || process.env.ORBI_GATEWAY_VERSION?.trim()
   || process.env.npm_package_version?.trim()
   || "0.0.0";
+
+function normalizeTalkGatewayBaseUrl(rawUrl: string | undefined | null) {
+  const value = rawUrl?.trim();
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (LEGACY_MESSAGING_GATEWAY_HOSTS.has(parsed.hostname.toLowerCase())) {
+      return "";
+    }
+    parsed.pathname = "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function resolveTalkGatewayBaseUrl(fallbackBaseUrl = "") {
+  return (
+    normalizeTalkGatewayBaseUrl(process.env.ORBI_TALK_GATEWAY_URL)
+    || normalizeTalkGatewayBaseUrl(process.env.APP_URL)
+    || normalizeTalkGatewayBaseUrl(process.env.VITE_APP_URL)
+    || normalizeTalkGatewayBaseUrl(process.env.PUBLIC_GATEWAY_BASE_URL)
+    || normalizeTalkGatewayBaseUrl(fallbackBaseUrl)
+    || CANONICAL_TALK_GATEWAY_BASE_URL
+  );
+}
 
 // Lazy initialization for Firebase Admin
 let firebaseAdminApp: admin.app.App | null = null;
@@ -1210,26 +1246,15 @@ async function startServer() {
       const protocolHeader = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
       const hostHeader = (req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim()
         || req.get("host");
-      const preferredBaseUrl =
-        process.env.ORBI_TALK_GATEWAY_URL?.trim()
-        || process.env.APP_URL?.trim()
-        || process.env.VITE_APP_URL?.trim()
-        || process.env.PUBLIC_GATEWAY_BASE_URL?.trim()
-        || "";
       const adminApp = getFirebaseAdmin();
       if (!adminApp) {
         return res.status(500).json({ error: "Firebase Admin is not configured" });
       }
       const db = adminApp.firestore();
 
-      let baseUrl = preferredBaseUrl;
-      if (!baseUrl) {
-        const protocol = protocolHeader || req.protocol || "https";
-        if (!hostHeader) {
-          return res.status(500).json({ error: "Unable to determine gateway host" });
-        }
-        baseUrl = `${protocol}://${hostHeader}`;
-      }
+      const protocol = protocolHeader || req.protocol || "https";
+      const requestBaseUrl = hostHeader ? `${protocol}://${hostHeader}` : "";
+      const baseUrl = resolveTalkGatewayBaseUrl(requestBaseUrl);
 
       const parsed = new URL(baseUrl);
       parsed.protocol = parsed.protocol === "http:" ? "ws:" : "wss:";
@@ -2839,11 +2864,7 @@ async function startServer() {
     }
   };
 
-  const keepAliveBaseUrl =
-    process.env.APP_URL?.trim() ||
-    process.env.VITE_APP_URL?.trim() ||
-    process.env.PUBLIC_GATEWAY_BASE_URL?.trim() ||
-    "";
+  const keepAliveBaseUrl = resolveTalkGatewayBaseUrl();
   const keepAliveApiKey =
     process.env.ORBI_TALK_GATEWAY_API_KEY?.trim()
     || process.env.ORBI_GATEWAY_API_KEY?.trim()
