@@ -75,6 +75,7 @@ export default function MessageTracker() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMessage, setSelectedMessage] = useState<MessageLog | null>(null);
   const [isResending, setIsResending] = useState<string | null>(null);
+  const [isForceResendingQueue, setIsForceResendingQueue] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
@@ -361,6 +362,35 @@ export default function MessageTracker() {
     }
   };
 
+  const forceResendQueue = async () => {
+    setIsForceResendingQueue(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const response = await fetch('/api/messages/force-resend-queue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ includeFailed: true, limit: 250 }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to force resend queue');
+      }
+
+      setFeedback({
+        message: `Queue sweep complete: ${data.pushed || 0} pushed, ${data.pending || 0} waiting, ${data.skipped || 0} skipped`,
+        type: 'success',
+      });
+    } catch (error: any) {
+      console.error('Error force resending queue:', error);
+      setFeedback({ message: error.message || 'Network error while forcing queue resend', type: 'error' });
+    } finally {
+      setIsForceResendingQueue(false);
+    }
+  };
+
   const handleSendCustom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!recipient) return;
@@ -459,6 +489,15 @@ export default function MessageTracker() {
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setIsSendModalOpen(true)} className="enterprise-button-primary">
               <Plus className="h-4 w-4" /> Send Message
+            </button>
+            <button
+              onClick={forceResendQueue}
+              disabled={isForceResendingQueue}
+              className="enterprise-button-secondary border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+              title="Force resend pending, queued, and failed SMS jobs for available relay devices"
+            >
+              {isForceResendingQueue ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Force Queue
             </button>
             <button
               onClick={exportCurrentView}

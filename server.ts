@@ -31,6 +31,10 @@ const DEVICE_SENT_COUNT_CACHE_MS = 60 * 1000;
 const STALE_PROCESSING_TIMEOUT_MS = 120000; // Requeue jobs stuck in processing for 2+ minutes
 const STALE_PROCESSING_CHECK_INTERVAL_MS = 30000;
 const STALE_PROCESSING_BATCH_SIZE = 100;
+const AUTO_DISPATCH_INTERVAL_MS = 15000;
+const AUTO_DISPATCH_RETRY_COOLDOWN_MS = 60000;
+const AUTO_DISPATCH_BATCH_SIZE = 100;
+const FORCE_RESEND_BATCH_SIZE = 250;
 const CANONICAL_TALK_GATEWAY_BASE_URL = "https://talk.orbifinancial.com";
 const LEGACY_MESSAGING_GATEWAY_HOSTS = new Set([
   "gateway.orbifinancial.com",
@@ -70,6 +74,23 @@ function resolveTalkGatewayBaseUrl(fallbackBaseUrl = "") {
     || normalizeTalkGatewayBaseUrl(fallbackBaseUrl)
     || CANONICAL_TALK_GATEWAY_BASE_URL
   );
+}
+
+function firestoreTimestampToMillis(value: any) {
+  if (!value) {
+    return 0;
+  }
+  if (typeof value.toMillis === "function") {
+    return value.toMillis();
+  }
+  if (typeof value.seconds === "number") {
+    return value.seconds * 1000;
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 // Lazy initialization for Firebase Admin
@@ -2418,6 +2439,153 @@ async function startServer() {
     }
   });
 
+  // Force resend all unsent SMS jobs for the authenticated owner or trusted system scope.
+  app.post("/api/messages/force-resend-queue", authenticateFirebaseUserIfPresent, authenticateExternalRequest, requireAuthenticatedSender, async (req: any, res) => {
+    const requestedLimit = Number.parseInt(String(req.body?.limit || ""), 10);
+    const batchLimit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), FORCE_RESEND_BATCH_SIZE)
+      : FORCE_RESEND_BATCH_SIZE;
+    const requestedDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
+    const requestedOwnerUid = typeof req.body?.ownerUid === "string" ? req.body.ownerUid.trim() : "";
+    const includeFailed = req.body?.includeFailed !== false;
+
+    try {
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.json({
+          success: true,
+          message: "Queue resend accepted (mock)",
+          scanned: 0,
+          pushed: 0,
+          pending: 0,
+          skipped: 0,
+        });
+      }
+
+      const requesterOwnerUid = req.externalAuth?.ownerUid || req.firebaseUser?.uid || "";
+      const isTrustedSystem = req.externalAuth?.authType === "trusted_system";
+      const scopedOwnerUid = isTrustedSystem ? (requestedOwnerUid || requesterOwnerUid) : requesterOwnerUid;
+
+      if (!isTrustedSystem && !scopedOwnerUid) {
+        return res.status(401).json({ error: "Authenticated owner is required to force resend queue" });
+      }
+
+      const db = adminApp.firestore();
+      const statuses = includeFailed ? ["pending", "queued", "failed"] : ["pending", "queued"];
+      const docs: any[] = [];
+
+      for (const status of statuses) {
+        if (docs.length >= batchLimit) {
+          break;
+        }
+
+        let queue: any = db.collection("message_logs")
+          .where("status", "==", status)
+          .where("channel", "==", "sms")
+          .limit(batchLimit - docs.length);
+
+        if (scopedOwnerUid) {
+          queue = queue.where("createdBy", "==", scopedOwnerUid);
+        }
+
+        const snapshot = await queue.get();
+        docs.push(...snapshot.docs);
+      }
+
+      let pushed = 0;
+      let pending = 0;
+      let skipped = 0;
+      const results: any[] = [];
+
+      for (const doc of docs.slice(0, batchLimit)) {
+        const data = doc.data();
+        const createdBy = typeof data.createdBy === "string" ? data.createdBy : "";
+
+        if (!isTrustedSystem && scopedOwnerUid && createdBy && createdBy !== scopedOwnerUid) {
+          skipped += 1;
+          continue;
+        }
+
+        if (["sent", "delivered", "received"].includes(String(data.status))) {
+          skipped += 1;
+          continue;
+        }
+
+        const previousDeviceId = typeof data.deviceId === "string" ? data.deviceId.trim() : "";
+        let targetDeviceId = requestedDeviceId;
+        if (!targetDeviceId && previousDeviceId && connectedDevices.get(previousDeviceId)?.readyState === WebSocket.OPEN) {
+          targetDeviceId = previousDeviceId;
+        }
+        if (!targetDeviceId && createdBy) {
+          targetDeviceId = await findBestDeviceForOwner(db, createdBy);
+        }
+        if (!targetDeviceId && previousDeviceId) {
+          targetDeviceId = previousDeviceId;
+        }
+
+        let dispatchResult: DeviceDispatchResult = { pushed: false, reason: "No available relay device" };
+        if (targetDeviceId) {
+          dispatchResult = notifyDevice(targetDeviceId, {
+            id: doc.id,
+            recipient: data.recipient,
+            body: data.body,
+            channel: data.channel || "sms",
+            simSlot: data.simSlot,
+            templateName: data.templateName,
+          });
+        }
+
+        const updateData: Record<string, any> = {
+          status: dispatchResult.pushed ? "queued" : "pending",
+          retryCount: admin.firestore.FieldValue.increment(1),
+          forceResendCount: admin.firestore.FieldValue.increment(1),
+          forceResentAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastDispatchAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        if (targetDeviceId) {
+          updateData.deviceId = targetDeviceId;
+        } else {
+          updateData.deviceId = admin.firestore.FieldValue.delete();
+        }
+
+        if (dispatchResult.pushed) {
+          updateData.pushedAt = admin.firestore.FieldValue.serverTimestamp();
+          updateData.error = admin.firestore.FieldValue.delete();
+          pushed += 1;
+        } else {
+          updateData.error = dispatchResult.reason || "Queued for retry when a relay device is available";
+          pending += 1;
+        }
+
+        await doc.ref.update(updateData);
+        results.push({
+          messageId: doc.id,
+          status: updateData.status,
+          pushed: dispatchResult.pushed,
+          deviceId: targetDeviceId || null,
+          reason: dispatchResult.reason,
+        });
+      }
+
+      res.json({
+        success: true,
+        scanned: docs.length,
+        pushed,
+        pending,
+        skipped,
+        results,
+        message: pushed > 0
+          ? `Force resend queued ${docs.length} message(s); ${pushed} pushed to live devices`
+          : `Force resend queued ${docs.length} message(s); waiting for device availability`,
+      });
+    } catch (error: any) {
+      console.error("Error in /api/messages/force-resend-queue:", error);
+      res.status(500).json({ error: error.message || "Failed to force resend queue" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -2863,6 +3031,111 @@ async function startServer() {
       return { pushed: false, reason };
     }
   };
+
+  let queueDispatchInFlight = false;
+  setInterval(async () => {
+    if (queueDispatchInFlight) {
+      return;
+    }
+
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return;
+    }
+
+    queueDispatchInFlight = true;
+    try {
+      const db = adminApp.firestore();
+      const statuses = ["pending", "queued", "failed"];
+      const docs: any[] = [];
+
+      for (const status of statuses) {
+        if (docs.length >= AUTO_DISPATCH_BATCH_SIZE) {
+          break;
+        }
+
+        const snapshot = await db.collection("message_logs")
+          .where("status", "==", status)
+          .where("channel", "==", "sms")
+          .limit(AUTO_DISPATCH_BATCH_SIZE - docs.length)
+          .get();
+        docs.push(...snapshot.docs);
+      }
+
+      let pushedCount = 0;
+      let skippedRecentCount = 0;
+      let waitingCount = 0;
+      const now = Date.now();
+
+      for (const doc of docs.slice(0, AUTO_DISPATCH_BATCH_SIZE)) {
+        const data = doc.data();
+        const lastAttemptMs = Math.max(
+          firestoreTimestampToMillis(data.lastDispatchAttemptAt),
+          firestoreTimestampToMillis(data.pushedAt),
+        );
+
+        if (lastAttemptMs > 0 && now - lastAttemptMs < AUTO_DISPATCH_RETRY_COOLDOWN_MS) {
+          skippedRecentCount += 1;
+          continue;
+        }
+
+        const ownerUid = typeof data.createdBy === "string" ? data.createdBy : "";
+        const assignedDeviceId = typeof data.deviceId === "string" ? data.deviceId.trim() : "";
+        let targetDeviceId = "";
+
+        if (assignedDeviceId && connectedDevices.get(assignedDeviceId)?.readyState === WebSocket.OPEN) {
+          targetDeviceId = assignedDeviceId;
+        }
+
+        if (!targetDeviceId && ownerUid) {
+          targetDeviceId = await findBestDeviceForOwner(db, ownerUid);
+        }
+
+        if (!targetDeviceId) {
+          waitingCount += 1;
+          continue;
+        }
+
+        const dispatchResult = notifyDevice(targetDeviceId, {
+          id: doc.id,
+          recipient: data.recipient,
+          body: data.body,
+          channel: data.channel || "sms",
+          simSlot: data.simSlot,
+          templateName: data.templateName,
+        });
+
+        const updateData: Record<string, any> = {
+          status: dispatchResult.pushed ? "queued" : "pending",
+          deviceId: targetDeviceId,
+          lastDispatchAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+          autoDispatchAttempts: admin.firestore.FieldValue.increment(1),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        if (dispatchResult.pushed) {
+          updateData.pushedAt = admin.firestore.FieldValue.serverTimestamp();
+          updateData.error = admin.firestore.FieldValue.delete();
+          pushedCount += 1;
+        } else {
+          updateData.error = dispatchResult.reason || "Auto dispatch failed; waiting for relay availability";
+          waitingCount += 1;
+        }
+
+        await doc.ref.update(updateData);
+      }
+
+      if (pushedCount > 0 || waitingCount > 0) {
+        console.log(
+          `[Queue Auto Dispatch] scanned=${docs.length} pushed=${pushedCount} waiting=${waitingCount} skipped_recent=${skippedRecentCount}`,
+        );
+      }
+    } catch (error) {
+      console.error("[Queue Auto Dispatch] Failed to dispatch unsent messages:", error);
+    } finally {
+      queueDispatchInFlight = false;
+    }
+  }, AUTO_DISPATCH_INTERVAL_MS);
 
   const keepAliveBaseUrl = resolveTalkGatewayBaseUrl();
   const keepAliveApiKey =
