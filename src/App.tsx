@@ -205,7 +205,7 @@ export default function App() {
         </div>
         <div className="space-y-2 text-center">
           <p className="section-kicker">Launching Console</p>
-          <p className="display-heading text-[15px]">Preparing ORBI GATEWAY</p>
+          <p className="display-heading text-[15px]">Preparing ORBI TALK GATEWAY</p>
         </div>
       </div>
     );
@@ -231,7 +231,7 @@ export default function App() {
             </div>
             <div className="space-y-2 pt-6">
               <p className="section-kicker">Operations Console</p>
-              <h1 className="display-heading text-[2.15rem] md:text-[2.6rem]">ORBI Gateway</h1>
+              <h1 className="display-heading text-[2.15rem] md:text-[2.6rem]">ORBI Talk Gateway</h1>
               <p className="text-slate-600 text-sm font-medium px-4 leading-6">
                 Enterprise-grade SMS & Notification infrastructure for modern businesses.
               </p>

@@ -1070,7 +1070,7 @@ export default function TemplateManager() {
                       </div>
                       <div>
                         <p className={`text-[9px] font-black ${newChannel === 'whatsapp' ? 'text-white' : 'text-slate-900'}`}>
-                          {newChannel === 'whatsapp' ? 'ORBI Business' : newChannel === 'email' ? 'ORBI Mailer' : newChannel === 'push' ? 'ORBI Push' : 'ORBI Gateway'}
+                          {newChannel === 'whatsapp' ? 'ORBI Business' : newChannel === 'email' ? 'ORBI Mailer' : newChannel === 'push' ? 'ORBI Push' : 'ORBI Talk'}
                         </p>
                         <div className="flex items-center gap-1">
                           <div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse"></div>

@@ -1,13 +1,13 @@
-# Orbi-Gateway-v2.1.2-Preview
+# ORBI Talk Gateway v2.1.2 Preview
 
-The ORBI Gateway System is an event-driven backend and admin portal for routing SMS and notification workloads through paired Android gateway devices, while also supporting WhatsApp, Email, and template-managed messaging flows.
+ORBI Talk Gateway is an event-driven backend and admin portal for routing SMS and notification workloads through paired Android relay devices, while also supporting WhatsApp, Email, and template-managed messaging flows.
 
 ## Core Flow
 
 1. Express receives API or dashboard requests.
 2. Templates and ownership data are resolved from Firestore.
 3. Messages are written into `message_logs`.
-4. Connected Android devices receive outbound jobs over WebSocket.
+4. Connected Android Talk devices receive outbound jobs over WebSocket.
 5. Delivery status, inbox-forwarded SMS, and device telemetry flow back into Firestore and the admin portal.
 
 ## Main Features

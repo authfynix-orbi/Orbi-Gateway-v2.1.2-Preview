@@ -396,7 +396,7 @@ export default function Settings() {
                   Trusted Infrastructure Key
                 </p>
                 <p className="mt-3 text-sm font-medium leading-6 text-amber-900">
-                  The server-only <code>ORBI_GATEWAY_API_KEY</code> is treated as a trusted system credential, not
+                  The server-only <code>ORBI_TALK_GATEWAY_API_KEY</code> is treated as a trusted system credential, not
                   as a user owner. When that master key is used, the request must still include <code>ownerUid</code>,
                   <code>ownerEmail</code>, or <code>deviceId</code> so the backend can attach the message to the correct owner.
                 </p>
@@ -436,9 +436,9 @@ export default function Settings() {
             <div className="space-y-6 p-8">
               <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
                 <div className="space-y-1">
-                  <h3 className="text-lg font-black text-slate-900">Reset Gateway Server</h3>
+                  <h3 className="text-lg font-black text-slate-900">Reset ORBI Talk Gateway Server</h3>
                   <p className="max-w-md text-sm text-slate-500">
-                    This will permanently delete all messages, registered devices, and templates from the database.
+                    This will permanently delete all messages, registered relay devices, and templates from the database.
                     This action cannot be undone.
                   </p>
                 </div>
@@ -464,7 +464,7 @@ export default function Settings() {
             <div className="space-y-2 text-center">
               <h2 className="text-2xl font-black tracking-tight text-slate-900">Are you absolutely sure?</h2>
               <p className="text-sm font-medium text-slate-500">
-                This will wipe all data from the gateway. This action is irreversible and will disconnect all active devices.
+                This will wipe all data from ORBI Talk Gateway. This action is irreversible and will disconnect all active relay devices.
               </p>
             </div>
             <div className="space-y-3">

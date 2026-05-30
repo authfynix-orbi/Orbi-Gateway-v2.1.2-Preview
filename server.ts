@@ -31,7 +31,8 @@ const DEVICE_SENT_COUNT_CACHE_MS = 60 * 1000;
 const STALE_PROCESSING_TIMEOUT_MS = 120000; // Requeue jobs stuck in processing for 2+ minutes
 const STALE_PROCESSING_CHECK_INTERVAL_MS = 30000;
 const STALE_PROCESSING_BATCH_SIZE = 100;
-const SERVICE_VERSION = process.env.ORBI_GATEWAY_VERSION?.trim()
+const SERVICE_VERSION = process.env.ORBI_TALK_GATEWAY_VERSION?.trim()
+  || process.env.ORBI_GATEWAY_VERSION?.trim()
   || process.env.npm_package_version?.trim()
   || "0.0.0";
 
@@ -668,7 +669,10 @@ async function startServer() {
         return next();
       }
 
-      const trustedGatewayApiKey = process.env.ORBI_GATEWAY_API_KEY?.trim() || "";
+      const trustedGatewayApiKey =
+        process.env.ORBI_TALK_GATEWAY_API_KEY?.trim()
+        || process.env.ORBI_GATEWAY_API_KEY?.trim()
+        || "";
       if (trustedGatewayApiKey && rawApiKey === trustedGatewayApiKey) {
         req.externalAuth = {
           authType: "trusted_system",
@@ -821,10 +825,10 @@ async function startServer() {
     }
   });
 
-  // API routes for the ORBI Gateway
+  // API routes for ORBI Talk Gateway
   app.get("/api/status", (req, res) => {
     res.json({ 
-      gateway: "ORBI Gateway",
+      gateway: "ORBI Talk Gateway",
       version: SERVICE_VERSION,
       status: "active",
       uptime: process.uptime()
@@ -1026,7 +1030,7 @@ async function startServer() {
       const requesterUid = req.firebaseUser.uid;
       const role = await getUserRole(db, requesterUid);
       if (role !== "admin") {
-        return res.status(403).json({ error: "Only admins can reset the gateway server" });
+        return res.status(403).json({ error: "Only admins can reset the ORBI Talk Gateway server" });
       }
 
       const collectionsToDelete = [
@@ -1081,13 +1085,13 @@ async function startServer() {
         totalDeleted,
         deletedCounts,
         recreated: ["system_meta/gateway_reset_state"],
-        message: "Gateway reset completed successfully",
+        message: "ORBI Talk Gateway reset completed successfully",
       });
     } catch (error) {
       logErrorTrace("admin.reset.failed", error, {
         requesterUid: req.firebaseUser?.uid || null,
       });
-      return res.status(500).json({ error: "Failed to reset gateway server" });
+      return res.status(500).json({ error: "Failed to reset ORBI Talk Gateway server" });
     }
   });
 
@@ -2832,7 +2836,10 @@ async function startServer() {
     process.env.VITE_APP_URL?.trim() ||
     process.env.PUBLIC_GATEWAY_BASE_URL?.trim() ||
     "";
-  const keepAliveApiKey = process.env.ORBI_GATEWAY_API_KEY?.trim() || "";
+  const keepAliveApiKey =
+    process.env.ORBI_TALK_GATEWAY_API_KEY?.trim()
+    || process.env.ORBI_GATEWAY_API_KEY?.trim()
+    || "";
   const requestedKeepAliveInterval = Number.parseInt(
     String(process.env.SELF_KEEPALIVE_INTERVAL_MS || ""),
     10,
@@ -2868,7 +2875,7 @@ async function startServer() {
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`WebSocket server running on ws://0.0.0.0:${PORT}`);
-    logActivity("server_start", "ORBI Gateway server started successfully");
+    logActivity("server_start", "ORBI Talk Gateway server started successfully");
   });
 }
 

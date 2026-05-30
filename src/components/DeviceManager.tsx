@@ -331,7 +331,7 @@ export default function DeviceManager() {
           </div>
           <h3 className="text-xl font-bold text-slate-900">No devices connected</h3>
           <p className="text-slate-500 max-w-sm mx-auto mt-2">
-            Install the ORBI Gateway Android app on your devices to start sending messages.
+            Install the ORBI Talk Android app on your relay devices to start sending messages.
           </p>
           <button 
             onClick={() => setIsAddDeviceModalOpen(true)}
@@ -468,7 +468,7 @@ export default function DeviceManager() {
             </div>
             <h2 className="text-3xl font-black tracking-tight leading-tight">Ready to scale your SMS infrastructure?</h2>
             <p className="text-slate-400 font-medium">
-              Connect multiple Android devices to distribute load and ensure 99.9% delivery rates. Our gateway automatically handles load balancing and failover.
+              Connect multiple Android relay devices to distribute load and ensure high delivery availability. ORBI Talk automatically handles load balancing and failover.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-4">
@@ -496,7 +496,7 @@ export default function DeviceManager() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-black text-slate-900 tracking-tight">Connect New Device</h2>
-                  <p className="text-slate-500 text-sm font-medium mt-1">Follow these steps to link an Android device to your ORBI Gateway.</p>
+                  <p className="text-slate-500 text-sm font-medium mt-1">Follow these steps to link an Android relay device to ORBI Talk Gateway.</p>
                 </div>
                 <button
                   onClick={() => setIsAddDeviceModalOpen(false)}
@@ -510,8 +510,8 @@ export default function DeviceManager() {
                 <div className="flex gap-4">
                   <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black shrink-0">1</div>
                   <div>
-                    <h3 className="font-bold text-slate-900">Download the ORBI Gateway APK</h3>
-                    <p className="text-sm text-slate-500 mt-1 mb-3">Install the gateway application on your dedicated Android device.</p>
+                    <h3 className="font-bold text-slate-900">Download the ORBI Talk APK</h3>
+                    <p className="text-sm text-slate-500 mt-1 mb-3">Install the relay application on your dedicated Android device.</p>
                     <button className="flex items-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl font-bold hover:bg-indigo-100 transition-all text-sm">
                       <Download className="w-4 h-4" />
                       Download APK (v1.0.1)
@@ -545,7 +545,7 @@ export default function DeviceManager() {
 
                       <div className="flex-1 bg-slate-50 p-4 rounded-3xl border border-slate-200 space-y-3 flex flex-col justify-center">
                         <div>
-                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Gateway URL</label>
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">ORBI Talk URL</label>
                           <div className="flex items-center gap-2 mt-1">
                             <code className="flex-1 bg-white px-3 py-2 rounded-lg text-xs font-mono border border-slate-200 text-slate-700 select-all">
                               {pairingUrl}
@@ -607,7 +607,7 @@ export default function DeviceManager() {
                   </div>
                   <div>
                     <h2 className="text-2xl font-black text-slate-900 tracking-tight">API Documentation</h2>
-                    <p className="text-slate-500 text-sm font-medium">How to send messages via ORBI Gateway</p>
+                    <p className="text-slate-500 text-sm font-medium">How to send messages via ORBI Talk Gateway</p>
                   </div>
                 </div>
                 <button
