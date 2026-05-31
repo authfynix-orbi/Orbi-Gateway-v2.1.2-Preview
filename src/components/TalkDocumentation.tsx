@@ -47,6 +47,36 @@ const templatePayload = JSON.stringify(
   2,
 );
 
+const templateRecord = JSON.stringify(
+  {
+    name: 'transaction_success',
+    channel: 'sms',
+    language: 'en',
+    messageType: 'transactional',
+    body:
+      'Hi {{customerName}}, your ORBI transaction {{reference}} for {{amount}} is complete. Thank you for using ORBI.',
+    components: [],
+    status: 'active',
+    createdBy: 'relay-owner-firebase-uid',
+  },
+  null,
+  2,
+);
+
+const templateRenderExample = JSON.stringify(
+  {
+    inputVariables: {
+      customerName: 'Amina',
+      amount: '25,000 TZS',
+      reference: 'ORBI-TX-8842',
+    },
+    renderedSms:
+      'Hi Amina, your ORBI transaction ORBI-TX-8842 for 25,000 TZS is complete. Thank you for using ORBI.',
+  },
+  null,
+  2,
+);
+
 const directPayload = JSON.stringify(
   {
     recipient: '+255764258114',
@@ -201,8 +231,62 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
         ),
       },
       {
-        id: 'direct-sms',
+        id: 'templating',
         eyebrow: 'Slide 04',
+        title: 'Template variables, rendering, and governance',
+        summary:
+          'Templates are stored as owned communication contracts. ORBI Core sends variables, ORBI Talk renders the final body, queues the message, and records the rendered output for audit.',
+        icon: Code2,
+        accent: 'from-sky-500 to-cyan-700',
+        body: (
+          <div className="space-y-5">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MiniCard
+                icon={ClipboardList}
+                title="Template identity"
+                detail="Use stable names like transaction_success, otp_login, provider_delay, or kyc_approved. Keep names lowercase and version only when behavior changes."
+              />
+              <MiniCard
+                icon={Code2}
+                title="Variable syntax"
+                detail="Use double braces, for example {{amount}}, {{reference}}, {{otp}}, {{customerName}}. ORBI Core supplies values in the data object."
+              />
+              <MiniCard
+                icon={ShieldCheck}
+                title="Safety rule"
+                detail="Never put secrets, API keys, passwords, raw tokens, or internal fraud notes into a customer-facing template variable."
+              />
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-2">
+              <CodeBlock label="message_templates document" value={templateRecord} />
+              <CodeBlock label="Variable render example" value={templateRenderExample} />
+            </div>
+
+            <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-5">
+              <h4 className="text-sm font-black text-amber-900">How ORBI Talk handles templates</h4>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {[
+                  'Looks up template by name, channel, language, and owner scope.',
+                  'Replaces {{variableName}} placeholders using the request data object.',
+                  'Stores the rendered body in message_logs so delivery can be audited later.',
+                  'Uses requestId to prevent duplicate jobs during backend retries.',
+                  'Queues SMS jobs when no relay is online, then background workers retry later.',
+                  'Keeps email/push template-driven so direct uncontrolled sends are avoided.',
+                ].map((item) => (
+                  <div key={item} className="flex gap-3 rounded-2xl bg-white/70 p-3">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <p className="text-[13px] font-bold leading-6 text-amber-950">{item}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: 'direct-sms',
+        eyebrow: 'Slide 05',
         title: 'Direct SMS API',
         summary:
           'Use direct SMS only for controlled operational cases. Financial and customer lifecycle messages should prefer templates.',
@@ -231,7 +315,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'pairing',
-        eyebrow: 'Slide 05',
+        eyebrow: 'Slide 06',
         title: 'Device pairing and live relay',
         summary:
           'Relay devices connect over WebSocket, identify themselves, maintain heartbeat, and receive SEND_SMS jobs in real time.',
@@ -264,7 +348,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'queue',
-        eyebrow: 'Slide 06',
+        eyebrow: 'Slide 07',
         title: 'Queue recovery and force resend',
         summary:
           'Unsent jobs stay in Firestore and are retried silently. Operators can also force a resend sweep when a relay is available.',
@@ -290,7 +374,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'status',
-        eyebrow: 'Slide 07',
+        eyebrow: 'Slide 08',
         title: 'Status callbacks and audit trail',
         summary:
           'The relay reports sent, failed, and delivered states. ORBI Talk updates message_logs and keeps operators inside Message Tracking.',
@@ -328,7 +412,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'checklist',
-        eyebrow: 'Slide 08',
+        eyebrow: 'Slide 09',
         title: 'Production integration checklist',
         summary:
           'Use this as the go-live sequence when connecting ORBI Core, Render, Firebase, and Android relay devices.',
