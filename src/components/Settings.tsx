@@ -118,7 +118,7 @@ export default function Settings() {
         },
         body: JSON.stringify({
           name: newCredentialName.trim() || 'External Integration',
-          scopes: ['send_template', 'send_sms'],
+          scopes: ['send_template', 'send_sms', 'send_email'],
         }),
       });
       const payload = await response.json();

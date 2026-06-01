@@ -8,6 +8,7 @@ import {
   Copy,
   KeyRound,
   Lock,
+  Mail,
   RadioTower,
   RefreshCw,
   ShieldCheck,
@@ -90,6 +91,39 @@ const directPayload = JSON.stringify(
   2,
 );
 
+const emailTemplatePayload = JSON.stringify(
+  {
+    templateName: 'account_statement_ready',
+    recipient: 'amina@example.com',
+    channel: 'email',
+    language: 'en',
+    messageType: 'transactional',
+    requestId: 'email-statement-20260601-0001',
+    ownerUid: 'relay-owner-firebase-uid',
+    data: {
+      customerName: 'Amina',
+      month: 'May 2026',
+      downloadUrl: 'https://portal.orbifinancial.com/statements/secure-link',
+    },
+  },
+  null,
+  2,
+);
+
+const directEmailPayload = JSON.stringify(
+  {
+    recipient: 'amina@example.com',
+    subject: 'Your ORBI statement is ready',
+    body: 'Hi Amina, your May 2026 ORBI statement is ready for secure download.',
+    channel: 'email',
+    messageType: 'transactional',
+    requestId: 'direct-email-20260601-0001',
+    ownerUid: 'relay-owner-firebase-uid',
+  },
+  null,
+  2,
+);
+
 const pairingPayload = JSON.stringify(
   {
     serverUrl: 'wss://talk.orbifinancial.com',
@@ -111,6 +145,11 @@ const curlForceQueue = `curl -X POST ${talkBaseUrl}/api/messages/force-resend-qu
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer $FIREBASE_ID_TOKEN" \\
   -d '{"includeFailed":true,"limit":250}'`;
+
+const curlEmailTemplate = `curl -X POST ${talkBaseUrl}/api/send-template \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: $ORBI_TALK_GATEWAY_API_KEY" \\
+  -d '${emailTemplatePayload.replace(/'/g, "'\\''")}'`;
 
 function CodeBlock({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -314,8 +353,58 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
         ),
       },
       {
-        id: 'pairing',
+        id: 'email',
         eyebrow: 'Slide 06',
+        title: 'Email service and provider delivery',
+        summary:
+          'ORBI Talk can now send email through server-side provider secrets. Use template email for production flows and direct email for controlled operational messages.',
+        icon: Mail,
+        accent: 'from-fuchsia-500 to-indigo-700',
+        body: (
+          <div className="space-y-5">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MiniCard
+                icon={Mail}
+                title="Template email"
+                detail="Call /api/send-template with channel='email'. ORBI Talk renders subject/body variables and sends through the configured email provider."
+              />
+              <MiniCard
+                icon={KeyRound}
+                title="Provider secrets"
+                detail="Configure ORBI_TALK_EMAIL_PROVIDER plus Resend or SMTP secrets only on the server. Never expose them in frontend code."
+              />
+              <MiniCard
+                icon={ShieldCheck}
+                title="Status tracking"
+                detail="Email jobs are stored in message_logs with provider, providerMessageId, status, sentAt, and delivery/audit metadata."
+              />
+            </div>
+            <div className="grid gap-5 xl:grid-cols-2">
+              <CodeBlock label="Template email payload" value={emailTemplatePayload} />
+              <CodeBlock label="Direct /api/send-email payload" value={directEmailPayload} />
+            </div>
+            <CodeBlock
+              label="Email provider env"
+              value={`ORBI_TALK_EMAIL_PROVIDER=resend
+ORBI_TALK_EMAIL_FROM="ORBI Financial <no-reply@orbifinancial.com>"
+ORBI_TALK_EMAIL_REPLY_TO=support@orbifinancial.com
+ORBI_TALK_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxx
+
+# SMTP alternative
+ORBI_TALK_EMAIL_PROVIDER=smtp
+ORBI_TALK_SMTP_HOST=smtp.example.com
+ORBI_TALK_SMTP_PORT=587
+ORBI_TALK_SMTP_SECURE=false
+ORBI_TALK_SMTP_USER=mailer@example.com
+ORBI_TALK_SMTP_PASS=server-secret-password`}
+            />
+            <CodeBlock label="Template email cURL" value={curlEmailTemplate} />
+          </div>
+        ),
+      },
+      {
+        id: 'pairing',
+        eyebrow: 'Slide 07',
         title: 'Device pairing and live relay',
         summary:
           'Relay devices connect over WebSocket, identify themselves, maintain heartbeat, and receive SEND_SMS jobs in real time.',
@@ -348,7 +437,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'queue',
-        eyebrow: 'Slide 07',
+        eyebrow: 'Slide 08',
         title: 'Queue recovery and force resend',
         summary:
           'Unsent jobs stay in Firestore and are retried silently. Operators can also force a resend sweep when a relay is available.',
@@ -374,7 +463,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'status',
-        eyebrow: 'Slide 08',
+        eyebrow: 'Slide 09',
         title: 'Status callbacks and audit trail',
         summary:
           'The relay reports sent, failed, and delivered states. ORBI Talk updates message_logs and keeps operators inside Message Tracking.',
@@ -412,7 +501,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'checklist',
-        eyebrow: 'Slide 09',
+        eyebrow: 'Slide 10',
         title: 'Production integration checklist',
         summary:
           'Use this as the go-live sequence when connecting ORBI Core, Render, Firebase, and Android relay devices.',

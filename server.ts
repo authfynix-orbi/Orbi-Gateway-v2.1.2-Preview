@@ -8,6 +8,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
 import crypto from "crypto";
 import os from "os";
+import nodemailer from "nodemailer";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -304,9 +305,135 @@ function renderTemplateContent(template: any, data: Record<string, unknown> | un
   }));
 
   return {
+    subject: typeof template?.subject === "string" ? replaceTokens(template.subject) : "",
     body: replaceTokens(parsedBody),
     components: renderedComponents,
   };
+}
+
+function escapeHtml(input: string) {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function renderPlainTextAsHtml(input: string) {
+  return `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a;white-space:pre-wrap">${escapeHtml(input)}</div>`;
+}
+
+function normalizeEmailRecipient(input: unknown) {
+  const value = typeof input === "string" ? input.trim() : "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : "";
+}
+
+type EmailDeliveryInput = {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  messageId?: string;
+  replyTo?: string;
+};
+
+async function sendEmailDelivery(input: EmailDeliveryInput) {
+  const to = normalizeEmailRecipient(input.to);
+  if (!to) {
+    throw new Error("EMAIL_RECIPIENT_INVALID");
+  }
+
+  const from =
+    process.env.ORBI_TALK_EMAIL_FROM?.trim()
+    || process.env.ORBI_EMAIL_FROM?.trim()
+    || "";
+  if (!from) {
+    throw new Error("EMAIL_FROM_NOT_CONFIGURED");
+  }
+
+  const subject = input.subject?.trim() || "ORBI Notification";
+  const text = input.text || "";
+  const html = input.html || renderPlainTextAsHtml(text);
+  const replyTo =
+    input.replyTo?.trim()
+    || process.env.ORBI_TALK_EMAIL_REPLY_TO?.trim()
+    || process.env.ORBI_EMAIL_REPLY_TO?.trim()
+    || undefined;
+  const provider =
+    process.env.ORBI_TALK_EMAIL_PROVIDER?.trim().toLowerCase()
+    || (process.env.ORBI_TALK_RESEND_API_KEY?.trim() || process.env.RESEND_API_KEY?.trim() ? "resend" : "")
+    || (process.env.ORBI_TALK_SMTP_HOST?.trim() || process.env.SMTP_HOST?.trim() ? "smtp" : "");
+
+  if (provider === "resend") {
+    const apiKey = process.env.ORBI_TALK_RESEND_API_KEY?.trim() || process.env.RESEND_API_KEY?.trim() || "";
+    if (!apiKey) {
+      throw new Error("RESEND_API_KEY_NOT_CONFIGURED");
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject,
+        html,
+        text,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(input.messageId ? { headers: { "X-ORBI-Message-ID": input.messageId } } : {}),
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || payload?.error || `RESEND_EMAIL_FAILED_${response.status}`);
+    }
+
+    return {
+      provider: "resend",
+      providerMessageId: typeof payload?.id === "string" ? payload.id : null,
+    };
+  }
+
+  if (provider === "smtp") {
+    const host = process.env.ORBI_TALK_SMTP_HOST?.trim() || process.env.SMTP_HOST?.trim() || "";
+    const port = Number.parseInt(process.env.ORBI_TALK_SMTP_PORT || process.env.SMTP_PORT || "587", 10);
+    const secureValue = process.env.ORBI_TALK_SMTP_SECURE || process.env.SMTP_SECURE || "";
+    const user = process.env.ORBI_TALK_SMTP_USER?.trim() || process.env.SMTP_USER?.trim() || "";
+    const pass = process.env.ORBI_TALK_SMTP_PASS || process.env.SMTP_PASS || "";
+
+    if (!host) {
+      throw new Error("SMTP_HOST_NOT_CONFIGURED");
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port: Number.isFinite(port) ? port : 587,
+      secure: secureValue === "true" || secureValue === "1",
+      ...(user || pass ? { auth: { user, pass } } : {}),
+    });
+
+    const result = await transporter.sendMail({
+      from,
+      to,
+      subject,
+      text,
+      html,
+      ...(replyTo ? { replyTo } : {}),
+      ...(input.messageId ? { headers: { "X-ORBI-Message-ID": input.messageId } } : {}),
+    });
+
+    return {
+      provider: "smtp",
+      providerMessageId: typeof result.messageId === "string" ? result.messageId : null,
+    };
+  }
+
+  throw new Error("EMAIL_PROVIDER_NOT_CONFIGURED");
 }
 
 function normalizeImportedTemplateComponents(components: unknown) {
@@ -737,7 +864,7 @@ async function startServer() {
           credentialId: "trusted_system",
           ownerUid: null,
           ownerEmail: null,
-          scopes: ["send_template", "send_sms", "admin"],
+          scopes: ["send_template", "send_sms", "send_email", "admin"],
           name: "ORBI Trusted Infrastructure",
         };
         return next();
@@ -1008,7 +1135,7 @@ async function startServer() {
       const requestedScopes = Array.isArray(req.body?.scopes) ? req.body.scopes : [];
       const scopes = requestedScopes.length > 0
         ? requestedScopes.filter((scope: any) => typeof scope === "string")
-        : ["send_template", "send_sms"];
+        : ["send_template", "send_sms", "send_email"];
       const rawApiKey = generateExternalApiKey();
       const keyHash = hashApiKey(rawApiKey);
 
@@ -1961,6 +2088,7 @@ async function startServer() {
 
       // Real-time push via WebSocket if device is connected
       let pushed = false;
+      let emailSent = false;
       let dispatchReason: string | null = null;
       if (createdNew && channel === "sms" && !targetDeviceId) {
         dispatchReason = "No live device resolved; queued for pending pickup";
@@ -2011,14 +2139,49 @@ async function startServer() {
         });
       }
 
+      if (createdNew && channel === "email") {
+        try {
+          const emailResult = await sendEmailDelivery({
+            to: recipient,
+            subject: renderedTemplate.subject || template.subject || "ORBI Notification",
+            text: parsedBody,
+            html: renderedTemplate.components.find((component: any) => component?.type === "html")?.text,
+            messageId,
+          });
+          emailSent = true;
+          await docRef.update({
+            status: "sent",
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            provider: emailResult.provider,
+            providerMessageId: emailResult.providerMessageId,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            error: admin.firestore.FieldValue.delete(),
+            dispatchError: admin.firestore.FieldValue.delete(),
+          });
+          logActivity("email_sent", `Email ${messageId} sent to ${recipient}`, null, resolvedOwnerUid || null);
+        } catch (error: any) {
+          dispatchReason = error?.message || "Email delivery failed";
+          await docRef.update({
+            status: "failed",
+            error: dispatchReason,
+            dispatchError: dispatchReason,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          throw error;
+        }
+      }
+
       res.json({ 
         success: true, 
         messageId,
         pushed,
+        emailSent,
         dispatchReason,
         source: messageSource,
         ownerUid: resolvedOwnerUid || null,
-        message: pushed
+        message: emailSent
+          ? "Email sent"
+          : pushed
           ? "Message pushed to device"
           : (dispatchReason
               ? `Message queued; live dispatch unavailable: ${dispatchReason}`
@@ -2052,6 +2215,7 @@ async function startServer() {
       deviceId,
       messageType = "transactional",
       requestId,
+      subject,
     } = req.body;
     const channel = options.channelOverride || rawChannel;
     logTrace("send_message.request", {
@@ -2063,6 +2227,7 @@ async function startServer() {
       requestedDeviceId: deviceId || null,
       messageType,
       requestId: requestId || null,
+      subject: subject || null,
       authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous"),
     });
 
@@ -2155,6 +2320,7 @@ async function startServer() {
           const messageLog: any = {
             recipient,
             body,
+            ...(channel === "email" ? { subject: subject || "ORBI Notification" } : {}),
             status: "pending",
             channel,
             messageType,
@@ -2182,6 +2348,7 @@ async function startServer() {
         const messageLog: any = {
           recipient,
           body,
+          ...(channel === "email" ? { subject: subject || "ORBI Notification" } : {}),
           status: "pending",
           channel,
           messageType,
@@ -2223,6 +2390,7 @@ async function startServer() {
 
       // Real-time push via WebSocket if device is connected
       let pushed = false;
+      let emailSent = false;
       let dispatchReason: string | null = null;
       if (createdNew && channel === "sms" && !targetDeviceId) {
         dispatchReason = "No live device resolved; queued for pending pickup";
@@ -2267,15 +2435,49 @@ async function startServer() {
         });
       }
 
+      if (createdNew && channel === "email") {
+        try {
+          const emailResult = await sendEmailDelivery({
+            to: recipient,
+            subject: subject || "ORBI Notification",
+            text: body,
+            messageId,
+          });
+          emailSent = true;
+          await docRef.update({
+            status: "sent",
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            provider: emailResult.provider,
+            providerMessageId: emailResult.providerMessageId,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            error: admin.firestore.FieldValue.delete(),
+            dispatchError: admin.firestore.FieldValue.delete(),
+          });
+          logActivity("email_sent", `Email ${messageId} sent to ${recipient}`, null, resolvedOwner.ownerUid || null);
+        } catch (error: any) {
+          dispatchReason = error?.message || "Email delivery failed";
+          await docRef.update({
+            status: "failed",
+            error: dispatchReason,
+            dispatchError: dispatchReason,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          throw error;
+        }
+      }
+
       res.json({ 
         success: true, 
         messageId,
         pushed,
+        emailSent,
         dispatchReason,
         source: messageSource,
         ownerUid: resolvedOwner.ownerUid || null,
         deviceId: targetDeviceId || null,
-        message: pushed
+        message: emailSent
+          ? "Email sent"
+          : pushed
           ? "Message pushed to device"
           : (dispatchReason
               ? `Message queued; live dispatch unavailable: ${dispatchReason}`
@@ -2312,15 +2514,15 @@ async function startServer() {
       handleDirectMessageRequest(req, res, { channelOverride: "sms" }),
   );
 
-  // Email must stay template-driven; expose compatibility endpoint with clear guidance.
+  // Direct email compatibility endpoint. Prefer /api/send-template for customer lifecycle messages.
   app.post(
     "/api/send-email",
     authenticateFirebaseUserIfPresent,
     authenticateExternalRequest,
     requireAuthenticatedSender,
-    requireCredentialScope(["send_email", "send_template"]),
+    requireCredentialScope(["send_email"]),
     async (req: any, res) =>
-      handleDirectMessageRequest(req, res, { requireTemplateChannel: "email" }),
+      handleDirectMessageRequest(req, res, { channelOverride: "email" }),
   );
 
   // Native app push moved into ORBI Backend; keep compatibility endpoint explicit.
