@@ -1475,9 +1475,15 @@ async function startServer() {
       const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 200);
 
       let query: any = db.collection("message_templates").limit(limit);
+      const trustedCatalogOwnerUid =
+        normalizeOptionalString(req.query.ownerUid)
+        || normalizeOptionalString(process.env.ORBI_TALK_GATEWAY_USER_ID)
+        || normalizeOptionalString(process.env.ORBI_COMMUNICATIONS_GATEWAY_USER_ID)
+        || normalizeOptionalString(process.env.ORBI_GATEWAY_USER_ID)
+        || normalizeOptionalString(process.env.OBI_GATEWAY_USER_ID);
       const ownerUid =
         req.externalAuth?.authType === "trusted_system"
-          ? normalizeOptionalString(process.env.OBI_GATEWAY_USER_ID)
+          ? trustedCatalogOwnerUid
           : (req.externalAuth?.ownerUid || req.firebaseUser?.uid || null);
 
       if (ownerUid) {
