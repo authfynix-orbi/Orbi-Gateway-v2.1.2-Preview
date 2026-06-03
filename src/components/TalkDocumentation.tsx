@@ -385,18 +385,23 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
             </div>
             <CodeBlock
               label="Email provider env"
-              value={`ORBI_TALK_EMAIL_PROVIDER=resend
-ORBI_TALK_EMAIL_FROM="ORBI Financial <no-reply@orbifinancial.com>"
-ORBI_TALK_EMAIL_REPLY_TO=support@orbifinancial.com
-ORBI_TALK_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxx
-
-# SMTP alternative
-ORBI_TALK_EMAIL_PROVIDER=smtp
-ORBI_TALK_SMTP_HOST=smtp.example.com
-ORBI_TALK_SMTP_PORT=587
-ORBI_TALK_SMTP_SECURE=false
-ORBI_TALK_SMTP_USER=mailer@example.com
-ORBI_TALK_SMTP_PASS=server-secret-password`}
+              value={[
+                'ORBI_TALK_EMAIL_PROVIDER=resend',
+                'ORBI_TALK_EMAIL_FROM="ORBI Financial <no-reply@orbifinancial.com>"',
+                'ORBI_TALK_EMAIL_REPLY_TO=""',
+                'ORBI_TALK_EMAIL_ALLOWED_FROM="ORBI Financial <no-reply@orbifinancial.com>,ORBI Support <support@orbifinancial.com>,ORBI Sales <sales@orbifinancial.com>,ORBI Security <security@orbifinancial.com>,ORBI Admin <admin@orbifinancial.com>,ORBI Info <info@orbifinancial.com>"',
+                'ORBI_TALK_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxx',
+                '',
+                '# Cloudflare Email Routing handles replies to each From alias.',
+                '',
+                '# SMTP alternative',
+                'ORBI_TALK_EMAIL_PROVIDER=smtp',
+                'ORBI_TALK_SMTP_HOST=smtp.example.com',
+                'ORBI_TALK_SMTP_PORT=587',
+                'ORBI_TALK_SMTP_SECURE=false',
+                'ORBI_TALK_SMTP_USER=mailer@example.com',
+                'ORBI_TALK_SMTP_PASS=server-secret-password',
+              ].join('\n')}
             />
             <CodeBlock label="Template email cURL" value={curlEmailTemplate} />
           </div>

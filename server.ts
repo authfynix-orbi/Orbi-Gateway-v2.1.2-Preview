@@ -329,8 +329,71 @@ function normalizeEmailRecipient(input: unknown) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : "";
 }
 
+function extractEmailAddress(input: string) {
+  const bracketMatch = input.match(/<([^>]+)>/);
+  return (bracketMatch?.[1] || input).trim().toLowerCase();
+}
+
+function getAllowedEmailSenders() {
+  const configured = (process.env.ORBI_TALK_EMAIL_ALLOWED_FROM || process.env.ORBI_EMAIL_ALLOWED_FROM || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const defaults = [
+    process.env.ORBI_TALK_EMAIL_FROM?.trim(),
+    "ORBI Financial <no-reply@orbifinancial.com>",
+    "ORBI Support <support@orbifinancial.com>",
+    "ORBI Sales <sales@orbifinancial.com>",
+    "ORBI Security <security@orbifinancial.com>",
+    "ORBI Admin <admin@orbifinancial.com>",
+    "ORBI Info <info@orbifinancial.com>",
+  ].filter((entry): entry is string => Boolean(entry));
+
+  const byAddress = new Map<string, string>();
+  for (const sender of [...defaults, ...configured]) {
+    const address = extractEmailAddress(sender);
+    if (address) {
+      byAddress.set(address, sender);
+    }
+  }
+  return byAddress;
+}
+
+function resolveAllowedEmailSender(requestedFrom?: unknown) {
+  const allowed = getAllowedEmailSenders();
+  const fallback =
+    process.env.ORBI_TALK_EMAIL_FROM?.trim()
+    || process.env.ORBI_EMAIL_FROM?.trim()
+    || "ORBI Financial <no-reply@orbifinancial.com>";
+  const requested = typeof requestedFrom === "string" ? requestedFrom.trim() : "";
+  if (!requested) {
+    const fallbackAddress = extractEmailAddress(fallback);
+    return allowed.get(fallbackAddress) || fallback;
+  }
+
+  const requestedAddress = extractEmailAddress(requested);
+  const allowedSender = allowed.get(requestedAddress);
+  if (!allowedSender) {
+    throw new Error(`EMAIL_FROM_NOT_ALLOWED:${requestedAddress || "unknown"}`);
+  }
+  return allowedSender;
+}
+
+function resolveAllowedReplyTo(requestedReplyTo?: unknown) {
+  const requested = typeof requestedReplyTo === "string" ? requestedReplyTo.trim() : "";
+  if (!requested) {
+    return undefined;
+  }
+  const normalized = normalizeEmailRecipient(extractEmailAddress(requested));
+  if (!normalized) {
+    throw new Error("EMAIL_REPLY_TO_INVALID");
+  }
+  return requested;
+}
+
 type EmailDeliveryInput = {
   to: string;
+  from?: string;
   subject: string;
   text: string;
   html?: string;
@@ -345,9 +408,7 @@ async function sendEmailDelivery(input: EmailDeliveryInput) {
   }
 
   const from =
-    process.env.ORBI_TALK_EMAIL_FROM?.trim()
-    || process.env.ORBI_EMAIL_FROM?.trim()
-    || "";
+    resolveAllowedEmailSender(input.from);
   if (!from) {
     throw new Error("EMAIL_FROM_NOT_CONFIGURED");
   }
@@ -356,10 +417,7 @@ async function sendEmailDelivery(input: EmailDeliveryInput) {
   const text = input.text || "";
   const html = input.html || renderPlainTextAsHtml(text);
   const replyTo =
-    input.replyTo?.trim()
-    || process.env.ORBI_TALK_EMAIL_REPLY_TO?.trim()
-    || process.env.ORBI_EMAIL_REPLY_TO?.trim()
-    || undefined;
+    resolveAllowedReplyTo(input.replyTo) || undefined;
   const provider =
     process.env.ORBI_TALK_EMAIL_PROVIDER?.trim().toLowerCase()
     || (process.env.ORBI_TALK_RESEND_API_KEY?.trim() || process.env.RESEND_API_KEY?.trim() ? "resend" : "")
@@ -465,6 +523,8 @@ function normalizeImportedTemplate(input: any) {
     name: typeof input?.name === "string" ? input.name.trim() : "",
     language: typeof input?.language === "string" && input.language.trim() ? input.language.trim() : "en",
     subject: typeof input?.subject === "string" ? input.subject.trim() : "",
+    fromEmail: typeof input?.fromEmail === "string" ? input.fromEmail.trim() : "",
+    replyTo: typeof input?.replyTo === "string" ? input.replyTo.trim() : "",
     body: normalizedBody,
     channel: normalizedChannel,
     messageType: normalizedMessageType,
@@ -532,6 +592,14 @@ function validateImportedTemplate(template: Record<string, unknown>) {
 
   if (template.subject != null && (typeof template.subject !== "string" || template.subject.length >= 255)) {
     return "Template subject is invalid";
+  }
+
+  if (template.fromEmail != null && (typeof template.fromEmail !== "string" || template.fromEmail.length >= 255)) {
+    return "Template fromEmail is invalid";
+  }
+
+  if (template.replyTo != null && (typeof template.replyTo !== "string" || template.replyTo.length >= 255)) {
+    return "Template replyTo is invalid";
   }
 
   if (template.messageType !== "transactional" && template.messageType !== "promotional") {
@@ -1371,6 +1439,8 @@ async function startServer() {
           language: entry.language || "en",
           messageType: entry.messageType || "transactional",
           subject: entry.subject || "",
+          fromEmail: entry.fromEmail || "",
+          replyTo: entry.replyTo || "",
           body: entry.body || "",
           variables: extractTemplateVariables(entry),
         };
@@ -2144,6 +2214,8 @@ async function startServer() {
           const emailResult = await sendEmailDelivery({
             to: recipient,
             subject: renderedTemplate.subject || template.subject || "ORBI Notification",
+            from: template.fromEmail || template.senderEmail,
+            replyTo: template.replyTo,
             text: parsedBody,
             html: renderedTemplate.components.find((component: any) => component?.type === "html")?.text,
             messageId,
@@ -2216,6 +2288,8 @@ async function startServer() {
       messageType = "transactional",
       requestId,
       subject,
+      fromEmail,
+      replyTo,
     } = req.body;
     const channel = options.channelOverride || rawChannel;
     logTrace("send_message.request", {
@@ -2228,6 +2302,8 @@ async function startServer() {
       messageType,
       requestId: requestId || null,
       subject: subject || null,
+      fromEmail: fromEmail || null,
+      replyTo: replyTo || null,
       authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous"),
     });
 
@@ -2321,6 +2397,8 @@ async function startServer() {
             recipient,
             body,
             ...(channel === "email" ? { subject: subject || "ORBI Notification" } : {}),
+            ...(channel === "email" && fromEmail ? { fromEmail } : {}),
+            ...(channel === "email" && replyTo ? { replyTo } : {}),
             status: "pending",
             channel,
             messageType,
@@ -2349,6 +2427,8 @@ async function startServer() {
           recipient,
           body,
           ...(channel === "email" ? { subject: subject || "ORBI Notification" } : {}),
+          ...(channel === "email" && fromEmail ? { fromEmail } : {}),
+          ...(channel === "email" && replyTo ? { replyTo } : {}),
           status: "pending",
           channel,
           messageType,
@@ -2439,8 +2519,10 @@ async function startServer() {
         try {
           const emailResult = await sendEmailDelivery({
             to: recipient,
+            from: fromEmail,
             subject: subject || "ORBI Notification",
             text: body,
+            replyTo,
             messageId,
           });
           emailSent = true;

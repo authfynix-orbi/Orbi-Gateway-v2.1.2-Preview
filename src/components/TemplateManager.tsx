@@ -47,6 +47,7 @@ interface Template {
   channel: 'sms' | 'whatsapp' | 'email' | 'push';
   language: string;
   subject?: string;
+  fromEmail?: string;
   body: string;
   components?: Array<{
     type: string;
@@ -77,6 +78,7 @@ const buildTemplatePayload = ({
   name,
   language,
   subject,
+  fromEmail,
   body,
   channel,
   messageType,
@@ -85,6 +87,7 @@ const buildTemplatePayload = ({
   name: string;
   language: string;
   subject: string;
+  fromEmail: string;
   body: string;
   channel: Template['channel'];
   messageType: Template['messageType'];
@@ -96,6 +99,7 @@ const buildTemplatePayload = ({
     name: string;
     language: string;
     subject: string;
+    fromEmail?: string;
     body: string;
     channel: Template['channel'];
     messageType: Template['messageType'];
@@ -104,6 +108,7 @@ const buildTemplatePayload = ({
     name: name.trim(),
     language: language.trim(),
     subject: subject.trim(),
+    ...(channel === 'email' && fromEmail.trim() ? { fromEmail: fromEmail.trim() } : {}),
     body: trimmedBody,
     channel,
     messageType,
@@ -128,6 +133,15 @@ const buildTemplatePayload = ({
   return templateData;
 };
 
+const emailSenderOptions = [
+  { label: 'No Reply', value: 'ORBI Financial <no-reply@orbifinancial.com>' },
+  { label: 'Support', value: 'ORBI Support <support@orbifinancial.com>' },
+  { label: 'Sales', value: 'ORBI Sales <sales@orbifinancial.com>' },
+  { label: 'Security', value: 'ORBI Security <security@orbifinancial.com>' },
+  { label: 'Admin', value: 'ORBI Admin <admin@orbifinancial.com>' },
+  { label: 'Info', value: 'ORBI Info <info@orbifinancial.com>' },
+];
+
 export default function TemplateManager() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -139,6 +153,7 @@ export default function TemplateManager() {
   const [newName, setNewName] = useState('');
   const [newLanguage, setNewLanguage] = useState('en');
   const [newSubject, setNewSubject] = useState('');
+  const [newFromEmail, setNewFromEmail] = useState(emailSenderOptions[0].value);
   const [newBody, setNewBody] = useState('');
   const [newChannel, setNewChannel] = useState<'sms' | 'whatsapp' | 'email' | 'push'>('sms');
   const [newMessageType, setNewMessageType] = useState<'transactional' | 'promotional'>('transactional');
@@ -390,6 +405,7 @@ export default function TemplateManager() {
         name: newName,
         language: newLanguage,
         subject: newSubject,
+        fromEmail: newFromEmail,
         body: newBody,
         channel: newChannel,
         messageType: newMessageType,
@@ -419,6 +435,7 @@ export default function TemplateManager() {
     setNewName('');
     setNewLanguage('en');
     setNewSubject('');
+    setNewFromEmail(emailSenderOptions[0].value);
     setNewBody('');
     setNewChannel('sms');
     setNewMessageType('transactional');
@@ -430,6 +447,7 @@ export default function TemplateManager() {
     setNewName(template.name);
     setNewLanguage(template.language);
     setNewSubject(template.subject || '');
+    setNewFromEmail(template.fromEmail || emailSenderOptions[0].value);
     setNewBody(template.body);
     setNewChannel(template.channel);
     setNewMessageType(template.messageType);
@@ -442,6 +460,7 @@ export default function TemplateManager() {
     setNewName(`${template.name}_copy`);
     setNewLanguage(template.language);
     setNewSubject(template.subject || '');
+    setNewFromEmail(template.fromEmail || emailSenderOptions[0].value);
     setNewBody(template.body);
     setNewChannel(template.channel);
     setNewMessageType(template.messageType);
@@ -967,15 +986,32 @@ export default function TemplateManager() {
                 </div>
 
                 {newChannel === 'email' && (
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email Subject</label>
-                    <input
-                      type="text"
-                      placeholder="e.g., Your Verification Code"
-                      value={newSubject}
-                      onChange={(e) => setNewSubject(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
-                    />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email Subject</label>
+                      <input
+                        type="text"
+                        placeholder="e.g., Your Verification Code"
+                        value={newSubject}
+                        onChange={(e) => setNewSubject(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Sender Identity</label>
+                      <select
+                        value={newFromEmail}
+                        onChange={(e) => setNewFromEmail(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold shadow-sm"
+                      >
+                        {emailSenderOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label} - {option.value}</option>
+                        ))}
+                      </select>
+                      <p className="ml-1 text-[9px] font-bold text-slate-400">
+                        Replies go to this alias and are routed by Cloudflare Email Routing.
+                      </p>
+                    </div>
                   </div>
                 )}
 
