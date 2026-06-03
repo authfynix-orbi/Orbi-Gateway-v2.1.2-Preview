@@ -134,12 +134,42 @@ const buildTemplatePayload = ({
 };
 
 const emailSenderOptions = [
-  { label: 'No Reply', value: 'ORBI Financial <no-reply@orbifinancial.com>' },
-  { label: 'Support', value: 'ORBI Support <support@orbifinancial.com>' },
-  { label: 'Sales', value: 'ORBI Sales <sales@orbifinancial.com>' },
-  { label: 'Security', value: 'ORBI Security <security@orbifinancial.com>' },
-  { label: 'Admin', value: 'ORBI Admin <admin@orbifinancial.com>' },
-  { label: 'Info', value: 'ORBI Info <info@orbifinancial.com>' },
+  {
+    label: 'No Reply',
+    email: 'no-reply@orbifinancial.com',
+    description: 'Automated receipts, OTPs, system notices, and non-reply lifecycle emails.',
+    value: 'ORBI Financial <no-reply@orbifinancial.com>',
+  },
+  {
+    label: 'Support',
+    email: 'support@orbifinancial.com',
+    description: 'Customer-care cases, ticket updates, service notices, and helpdesk replies.',
+    value: 'ORBI Support <support@orbifinancial.com>',
+  },
+  {
+    label: 'Sales',
+    email: 'sales@orbifinancial.com',
+    description: 'Merchant onboarding, commercial follow-ups, and approved growth campaigns.',
+    value: 'ORBI Sales <sales@orbifinancial.com>',
+  },
+  {
+    label: 'Security',
+    email: 'security@orbifinancial.com',
+    description: 'Security alerts, suspicious activity notices, and account-protection messages.',
+    value: 'ORBI Security <security@orbifinancial.com>',
+  },
+  {
+    label: 'Admin',
+    email: 'admin@orbifinancial.com',
+    description: 'Platform administration, staff notices, and institutional operations messages.',
+    value: 'ORBI Admin <admin@orbifinancial.com>',
+  },
+  {
+    label: 'Info',
+    email: 'info@orbifinancial.com',
+    description: 'General announcements, informational notices, and standard service updates.',
+    value: 'ORBI Info <info@orbifinancial.com>',
+  },
 ];
 
 export default function TemplateManager() {
@@ -986,7 +1016,21 @@ export default function TemplateManager() {
                 </div>
 
                 {newChannel === 'email' && (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-4 rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-4 shadow-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-indigo-500">Email Delivery Identity</p>
+                        <h3 className="text-sm font-black text-slate-900">Choose an approved ORBI sender</h3>
+                        <p className="mt-1 max-w-2xl text-xs font-semibold leading-relaxed text-slate-500">
+                          This sender is saved on the template and reused whenever ORBI Core calls this template. Staff cannot inject random sender emails at send time.
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                        Allow-list enforced
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email Subject</label>
                       <input
@@ -997,20 +1041,44 @@ export default function TemplateManager() {
                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Sender Identity</label>
-                      <select
-                        value={newFromEmail}
-                        onChange={(e) => setNewFromEmail(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold shadow-sm"
-                      >
-                        {emailSenderOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label} - {option.value}</option>
-                        ))}
-                      </select>
-                      <p className="ml-1 text-[9px] font-bold text-slate-400">
-                        Replies go to this alias and are routed by Cloudflare Email Routing.
-                      </p>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Allowed Email Senders</label>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {emailSenderOptions.map((option) => {
+                          const isSelected = newFromEmail === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => setNewFromEmail(option.value)}
+                              className={`group rounded-2xl border p-3 text-left transition-all ${
+                                isSelected
+                                  ? 'border-indigo-500 bg-white shadow-lg shadow-indigo-100 ring-4 ring-indigo-500/10'
+                                  : 'border-slate-200 bg-white/70 hover:border-indigo-200 hover:bg-white'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className={`text-xs font-black ${isSelected ? 'text-indigo-700' : 'text-slate-800'}`}>{option.label}</p>
+                                  <p className="mt-0.5 break-all font-mono text-[10px] font-bold text-slate-500">{option.email}</p>
+                                </div>
+                                <div className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border ${
+                                  isSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 bg-slate-50 text-transparent'
+                                }`}>
+                                  <Check className="h-3 w-3" />
+                                </div>
+                              </div>
+                              <p className="mt-2 text-[10px] font-semibold leading-snug text-slate-500">{option.description}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2">
+                        <p className="text-[10px] font-bold leading-relaxed text-slate-500">
+                          Selected sender: <span className="font-mono text-slate-800">{newFromEmail}</span>. Replies go to this alias and Cloudflare Email Routing decides the final inbox.
+                        </p>
+                      </div>
+                    </div>
                     </div>
                   </div>
                 )}
