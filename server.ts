@@ -391,6 +391,53 @@ function resolveAllowedReplyTo(requestedReplyTo?: unknown) {
   return requested;
 }
 
+function buildEmailDeliveryHealth() {
+  const configuredProvider = process.env.ORBI_TALK_EMAIL_PROVIDER?.trim().toLowerCase() || "";
+  const hasResendKey = Boolean(process.env.ORBI_TALK_RESEND_API_KEY?.trim() || process.env.RESEND_API_KEY?.trim());
+  const hasSmtpHost = Boolean(process.env.ORBI_TALK_SMTP_HOST?.trim() || process.env.SMTP_HOST?.trim());
+  const provider = configuredProvider || (hasResendKey ? "resend" : hasSmtpHost ? "smtp" : "");
+  const allowedSenders = Array.from(getAllowedEmailSenders().entries()).map(([email, sender]) => ({
+    email,
+    sender,
+  }));
+  const defaultFrom = resolveAllowedEmailSender();
+  const missing: string[] = [];
+
+  if (!provider) {
+    missing.push("ORBI_TALK_EMAIL_PROVIDER");
+  } else if (!["resend", "smtp"].includes(provider)) {
+    missing.push("ORBI_TALK_EMAIL_PROVIDER_UNSUPPORTED");
+  }
+  if (provider === "resend" && !hasResendKey) {
+    missing.push("ORBI_TALK_RESEND_API_KEY");
+  }
+  if (provider === "smtp") {
+    if (!hasSmtpHost) missing.push("ORBI_TALK_SMTP_HOST");
+    if (!(process.env.ORBI_TALK_SMTP_USER?.trim() || process.env.SMTP_USER?.trim())) {
+      missing.push("ORBI_TALK_SMTP_USER");
+    }
+    if (!(process.env.ORBI_TALK_SMTP_PASS || process.env.SMTP_PASS)) {
+      missing.push("ORBI_TALK_SMTP_PASS");
+    }
+  }
+
+  return {
+    configured: missing.length === 0 && Boolean(provider),
+    provider: provider || null,
+    defaultFrom,
+    replyRouting: process.env.ORBI_TALK_EMAIL_REPLY_TO?.trim()
+      ? "explicit_reply_to"
+      : "cloudflare_email_routing_by_from_alias",
+    allowedSenders,
+    checks: {
+      resendApiKeyConfigured: hasResendKey,
+      smtpHostConfigured: hasSmtpHost,
+      allowedSenderCount: allowedSenders.length,
+    },
+    missing,
+  };
+}
+
 type EmailDeliveryInput = {
   to: string;
   from?: string;
@@ -1087,6 +1134,23 @@ async function startServer() {
       uptime: process.uptime()
     });
   });
+
+  app.get(
+    "/api/email/health",
+    authenticateFirebaseUserIfPresent,
+    authenticateExternalRequest,
+    requireAuthenticatedSender,
+    requireCredentialScope(["send_email", "send_template", "admin"]),
+    (req: any, res) => {
+      const health = buildEmailDeliveryHealth();
+      res.status(health.configured ? 200 : 503).json({
+        success: health.configured,
+        email: health,
+        authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "unknown"),
+        generatedAt: new Date().toISOString(),
+      });
+    },
+  );
 
   app.get(
     "/api/queue-health",

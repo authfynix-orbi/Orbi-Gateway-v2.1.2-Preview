@@ -70,6 +70,12 @@ export default function Settings() {
     [sampleTemplatePayload],
   );
 
+  const sampleEmailHealthCurl = useMemo(
+    () => `curl -X GET https://talk.orbifinancial.com/api/email/health \\
+  -H "x-api-key: $ORBI_TALK_GATEWAY_API_KEY"`,
+    [],
+  );
+
   useEffect(() => {
     loadCredentials();
   }, []);
@@ -379,6 +385,29 @@ export default function Settings() {
                   title="Secret boundary"
                   detail="Never place Talk Gateway API keys in mobile apps, browser UI, logs, or templates."
                 />
+              </div>
+
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.24em] text-emerald-700">
+                      Email readiness check
+                    </p>
+                    <p className="mt-2 text-sm font-bold leading-6 text-emerald-900">
+                      Before ORBI Core sends email templates, call this endpoint to confirm Resend/SMTP is configured, approved senders are loaded, and no secret is missing.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => copyText(sampleEmailHealthCurl, 'Email health cURL')}
+                    className="enterprise-pill enterprise-pill-neutral shrink-0"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy health cURL
+                  </button>
+                </div>
+                <pre className="mt-4 overflow-x-auto whitespace-pre-wrap break-all rounded-2xl bg-emerald-950 p-4 text-xs leading-6 text-emerald-50">
+                  {sampleEmailHealthCurl}
+                </pre>
               </div>
 
               <div className="rounded-3xl border border-slate-200 bg-slate-950 p-6 text-slate-100">

@@ -151,6 +151,9 @@ const curlEmailTemplate = `curl -X POST ${talkBaseUrl}/api/send-template \\
   -H "x-api-key: $ORBI_TALK_GATEWAY_API_KEY" \\
   -d '${emailTemplatePayload.replace(/'/g, "'\\''")}'`;
 
+const curlEmailHealth = `curl -X GET ${talkBaseUrl}/api/email/health \\
+  -H "x-api-key: $ORBI_TALK_GATEWAY_API_KEY"`;
+
 function CodeBlock({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -379,6 +382,12 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
                 detail="Email jobs are stored in message_logs with provider, providerMessageId, status, sentAt, and delivery/audit metadata."
               />
             </div>
+            <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-5">
+              <h4 className="text-sm font-black text-emerald-950">Before connecting ORBI Core</h4>
+              <p className="mt-2 text-[13px] font-bold leading-6 text-emerald-800">
+                Run email health first. It confirms provider selection, sender allow-list, default From identity, and missing env values without exposing API keys or sending a real email.
+              </p>
+            </div>
             <div className="grid gap-5 xl:grid-cols-2">
               <CodeBlock label="Template email payload" value={emailTemplatePayload} />
               <CodeBlock label="Direct /api/send-email payload" value={directEmailPayload} />
@@ -403,6 +412,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
                 'ORBI_TALK_SMTP_PASS=server-secret-password',
               ].join('\n')}
             />
+            <CodeBlock label="Email health check" value={curlEmailHealth} />
             <CodeBlock label="Template email cURL" value={curlEmailTemplate} />
           </div>
         ),
