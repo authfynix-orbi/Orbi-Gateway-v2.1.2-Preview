@@ -137,36 +137,42 @@ const emailSenderOptions = [
   {
     label: 'No Reply',
     email: 'no-reply@orbifinancial.com',
+    badge: 'Transactions',
     description: 'Automated receipts, OTPs, system notices, and non-reply lifecycle emails.',
     value: 'ORBI Financial <no-reply@orbifinancial.com>',
   },
   {
     label: 'Support',
     email: 'support@orbifinancial.com',
+    badge: 'Care',
     description: 'Customer-care cases, ticket updates, service notices, and helpdesk replies.',
     value: 'ORBI Support <support@orbifinancial.com>',
   },
   {
     label: 'Sales',
     email: 'sales@orbifinancial.com',
+    badge: 'Commercial',
     description: 'Merchant onboarding, commercial follow-ups, and approved growth campaigns.',
     value: 'ORBI Sales <sales@orbifinancial.com>',
   },
   {
     label: 'Security',
     email: 'security@orbifinancial.com',
+    badge: 'Risk',
     description: 'Security alerts, suspicious activity notices, and account-protection messages.',
     value: 'ORBI Security <security@orbifinancial.com>',
   },
   {
     label: 'Admin',
     email: 'admin@orbifinancial.com',
+    badge: 'Ops',
     description: 'Platform administration, staff notices, and institutional operations messages.',
     value: 'ORBI Admin <admin@orbifinancial.com>',
   },
   {
     label: 'Info',
     email: 'info@orbifinancial.com',
+    badge: 'General',
     description: 'General announcements, informational notices, and standard service updates.',
     value: 'ORBI Info <info@orbifinancial.com>',
   },
@@ -1060,7 +1066,12 @@ export default function TemplateManager() {
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Allowed Email Senders</label>
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+                        <p className="text-[10px] font-bold leading-relaxed text-amber-800">
+                          Transaction receipts, OTPs, and account lifecycle emails should normally use <span className="font-mono">no-reply@orbifinancial.com</span>. Use <span className="font-mono">security@orbifinancial.com</span> only for fraud, device, and account-protection alerts.
+                        </p>
+                      </div>
+                      <div className="grid max-h-[360px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
                         {emailSenderOptions.map((option) => {
                           const isSelected = newFromEmail === option.value;
                           return (
@@ -1076,7 +1087,18 @@ export default function TemplateManager() {
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div>
-                                  <p className={`text-xs font-black ${isSelected ? 'text-indigo-700' : 'text-slate-800'}`}>{option.label}</p>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <p className={`text-xs font-black ${isSelected ? 'text-indigo-700' : 'text-slate-800'}`}>{option.label}</p>
+                                    <span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider ${
+                                      option.badge === 'Transactions'
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : isSelected
+                                        ? 'bg-indigo-100 text-indigo-700'
+                                        : 'bg-slate-100 text-slate-500'
+                                    }`}>
+                                      {option.badge}
+                                    </span>
+                                  </div>
                                   <p className="mt-0.5 break-all font-mono text-[10px] font-bold text-slate-500">{option.email}</p>
                                 </div>
                                 <div className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border ${
