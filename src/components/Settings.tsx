@@ -216,12 +216,12 @@ export default function Settings({ isAdmin = false }: { isAdmin?: boolean }) {
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-8 md:px-8">
       <div>
         <h1 className="text-3xl font-black tracking-tight text-slate-900">
-          {isAdmin ? 'System Settings' : 'Developer API Access'}
+          {isAdmin ? 'System Settings & API Access' : 'Settings & API Access'}
         </h1>
         <p className="font-medium text-slate-500">
           {isAdmin
             ? 'Manage ownership metadata, backend API credentials, ORBI Core connection rules, and administrative actions.'
-            : 'Create secure API keys for trusted backend integrations such as ORBI Shop. Keep keys server-side only.'}
+            : 'Manage your integration identity and create secure API keys for trusted backend services such as ORBI Shop.'}
         </p>
       </div>
 

@@ -403,7 +403,7 @@ export default function App() {
             }`}
           >
             <KeyRound className="w-5 h-5" />
-            API Access
+            Settings & API
             {activeTab === 'settings' && <ChevronRight className="w-4 h-4 ml-auto" />}
           </button>
 
