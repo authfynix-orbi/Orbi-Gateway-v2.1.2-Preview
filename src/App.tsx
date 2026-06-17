@@ -8,7 +8,7 @@ import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User 
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth, isFirebaseConfigured } from './firebase';
 import { FcGoogle } from 'react-icons/fc';
-import { MessageSquare, ChevronRight, Smartphone, Users, LogOut, LayoutDashboard, AlertCircle, Send, Menu, X, BookOpen } from 'lucide-react';
+import { MessageSquare, ChevronRight, Smartphone, Users, LogOut, LayoutDashboard, AlertCircle, Send, Menu, X, BookOpen, KeyRound } from 'lucide-react';
 import TemplateManager from './components/TemplateManager';
 import DeviceManager from './components/DeviceManager';
 import Dashboard from './components/Dashboard';
@@ -195,7 +195,7 @@ export default function App() {
       case 'settings':
         return (
           <ErrorBoundary>
-            <Settings />
+            <Settings isAdmin={userRole === 'admin'} />
           </ErrorBoundary>
         );
       default:
@@ -394,6 +394,19 @@ export default function App() {
             {activeTab === 'docs' && <ChevronRight className="w-4 h-4 ml-auto" />}
           </button>
 
+          <button
+            onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }}
+            className={`tab-button ${
+              activeTab === 'settings'
+                ? 'tab-button-active'
+                : 'tab-button-idle'
+            }`}
+          >
+            <KeyRound className="w-5 h-5" />
+            API Access
+            {activeTab === 'settings' && <ChevronRight className="w-4 h-4 ml-auto" />}
+          </button>
+
           {userRole === 'admin' && (
             <>
               <div className="pt-6 pb-2">
@@ -412,18 +425,6 @@ export default function App() {
                 {activeTab === 'users' && <ChevronRight className="w-4 h-4 ml-auto" />}
               </button>
 
-	              <button 
-	                onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }}
-	                className={`tab-button ${
-	                  activeTab === 'settings' 
-	                    ? 'tab-button-active' 
-	                    : 'tab-button-idle'
-	                }`}
-	              >
-                <AlertCircle className="w-5 h-5" />
-                Settings
-                {activeTab === 'settings' && <ChevronRight className="w-4 h-4 ml-auto" />}
-              </button>
             </>
           )}
         </nav>

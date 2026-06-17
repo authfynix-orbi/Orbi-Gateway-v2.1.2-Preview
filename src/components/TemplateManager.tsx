@@ -156,6 +156,13 @@ const emailSenderOptions = [
     value: 'ORBI Sales <sales@orbifinancial.com>',
   },
   {
+    label: 'Shop',
+    email: 'shop@orbifinancial.com',
+    badge: 'Commerce',
+    description: 'ORBI Shop orders, escrow updates, seller notices, receipts, and marketplace lifecycle emails.',
+    value: 'ORBI Shop <shop@orbifinancial.com>',
+  },
+  {
     label: 'Security',
     email: 'security@orbifinancial.com',
     badge: 'Risk',

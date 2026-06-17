@@ -26,7 +26,7 @@ type CredentialRecord = {
   revokedAt: any;
 };
 
-export default function Settings() {
+export default function Settings({ isAdmin = false }: { isAdmin?: boolean }) {
   const [isResetting, setIsResetting] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [status, setStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -34,7 +34,7 @@ export default function Settings() {
   const [loadingCredentials, setLoadingCredentials] = useState(true);
   const [creatingCredential, setCreatingCredential] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [newCredentialName, setNewCredentialName] = useState('Production Backend');
+  const [newCredentialName, setNewCredentialName] = useState('ORBI Shop Backend');
   const [latestSecret, setLatestSecret] = useState<string | null>(null);
 
   const currentUser = auth.currentUser;
@@ -215,9 +215,13 @@ export default function Settings() {
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-6 py-8 md:px-8">
       <div>
-        <h1 className="text-3xl font-black tracking-tight text-slate-900">System Settings</h1>
+        <h1 className="text-3xl font-black tracking-tight text-slate-900">
+          {isAdmin ? 'System Settings' : 'Developer API Access'}
+        </h1>
         <p className="font-medium text-slate-500">
-          Manage ownership metadata, backend API credentials, ORBI Core connection rules, and administrative actions.
+          {isAdmin
+            ? 'Manage ownership metadata, backend API credentials, ORBI Core connection rules, and administrative actions.'
+            : 'Create secure API keys for trusted backend integrations such as ORBI Shop. Keep keys server-side only.'}
         </p>
       </div>
 
@@ -298,6 +302,17 @@ export default function Settings() {
                   {creatingCredential ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   Create Key
                 </button>
+              </div>
+
+              <div className="rounded-3xl border border-cyan-200 bg-cyan-50 p-5">
+                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-cyan-700">
+                  Third-party trusted product mode
+                </p>
+                <p className="mt-2 text-sm font-bold leading-6 text-cyan-950">
+                  Use this key from your backend only. For ORBI Shop, store the generated secret as{' '}
+                  <code>ORBI_SHOP_TALK_API_KEY</code>, then call <code>/api/send-template</code> with approved
+                  ORBI Shop templates and a unique <code>requestId</code>.
+                </p>
               </div>
 
               {latestSecret && (
@@ -509,31 +524,33 @@ export default function Settings() {
             </div>
           </div>
 
-          <div className="enterprise-card border-red-100 overflow-hidden">
-            <div className="flex items-center gap-3 border-b border-red-100 bg-red-50 px-8 py-4">
-              <ShieldAlert className="h-5 w-5 text-red-600" />
-              <span className="text-xs font-black uppercase tracking-widest text-red-600">Danger Zone</span>
-            </div>
+          {isAdmin && (
+            <div className="enterprise-card border-red-100 overflow-hidden">
+              <div className="flex items-center gap-3 border-b border-red-100 bg-red-50 px-8 py-4">
+                <ShieldAlert className="h-5 w-5 text-red-600" />
+                <span className="text-xs font-black uppercase tracking-widest text-red-600">Danger Zone</span>
+              </div>
 
-            <div className="space-y-6 p-8">
-              <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
-                <div className="space-y-1">
-                  <h3 className="text-lg font-black text-slate-900">Reset ORBI Talk Gateway Server</h3>
-                  <p className="max-w-md text-sm text-slate-500">
-                    This will permanently delete all messages, registered relay devices, and templates from the database.
-                    This action cannot be undone.
-                  </p>
+              <div className="space-y-6 p-8">
+                <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-black text-slate-900">Reset ORBI Talk Gateway Server</h3>
+                    <p className="max-w-md text-sm text-slate-500">
+                      This will permanently delete all messages, registered relay devices, and templates from the database.
+                      This action cannot be undone.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowConfirm(true)}
+                    className="flex items-center gap-2 rounded-2xl bg-red-600 px-8 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-red-100 transition-all hover:bg-red-700 active:scale-95"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Hard Flash Server
+                  </button>
                 </div>
-                <button
-                  onClick={() => setShowConfirm(true)}
-                  className="flex items-center gap-2 rounded-2xl bg-red-600 px-8 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-red-100 transition-all hover:bg-red-700 active:scale-95"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Hard Flash Server
-                </button>
               </div>
             </div>
-          </div>
+          )}
         </section>
       </div>
 

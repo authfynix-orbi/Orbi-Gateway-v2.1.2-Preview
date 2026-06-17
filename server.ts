@@ -344,6 +344,7 @@ function getAllowedEmailSenders() {
     "ORBI Financial <no-reply@orbifinancial.com>",
     "ORBI Support <support@orbifinancial.com>",
     "ORBI Sales <sales@orbifinancial.com>",
+    "ORBI Shop <shop@orbifinancial.com>",
     "ORBI Security <security@orbifinancial.com>",
     "ORBI Admin <admin@orbifinancial.com>",
     "ORBI Info <info@orbifinancial.com>",

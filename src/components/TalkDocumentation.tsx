@@ -12,6 +12,7 @@ import {
   RadioTower,
   RefreshCw,
   ShieldCheck,
+  ShoppingBag,
   Smartphone,
   TerminalSquare,
   Webhook,
@@ -153,6 +154,33 @@ const curlEmailTemplate = `curl -X POST ${talkBaseUrl}/api/send-template \\
 
 const curlEmailHealth = `curl -X GET ${talkBaseUrl}/api/email/health \\
   -H "x-api-key: $ORBI_TALK_GATEWAY_API_KEY"`;
+
+const orbiShopTemplatePayload = JSON.stringify(
+  {
+    templateName: 'SHOP_ORDER_CREATED',
+    recipient: 'customer@example.com',
+    channel: 'email',
+    language: 'sw',
+    messageType: 'transactional',
+    requestId: 'shop-order-created-ORBI-SHOP-10001',
+    ownerUid: 'orbi-shop-service-owner',
+    ownerEmail: 'shop@orbifinancial.com',
+    data: {
+      customerName: 'Daniel',
+      orderId: 'ORBI-SHOP-10001',
+      currency: 'TZS',
+      amount: '125000',
+      refId: 'SHOP-REF-10001',
+    },
+  },
+  null,
+  2,
+);
+
+const curlOrbiShopTemplate = `curl -X POST ${talkBaseUrl}/api/send-template \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: $ORBI_SHOP_TALK_API_KEY" \\
+  -d '${orbiShopTemplatePayload.replace(/'/g, "'\\''")}'`;
 
 function CodeBlock({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -398,7 +426,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
                 'ORBI_TALK_EMAIL_PROVIDER=resend',
                 'ORBI_TALK_EMAIL_FROM="ORBI Financial <no-reply@orbifinancial.com>"',
                 'ORBI_TALK_EMAIL_REPLY_TO=""',
-                'ORBI_TALK_EMAIL_ALLOWED_FROM="ORBI Financial <no-reply@orbifinancial.com>,ORBI Support <support@orbifinancial.com>,ORBI Sales <sales@orbifinancial.com>,ORBI Security <security@orbifinancial.com>,ORBI Admin <admin@orbifinancial.com>,ORBI Info <info@orbifinancial.com>"',
+                'ORBI_TALK_EMAIL_ALLOWED_FROM="ORBI Financial <no-reply@orbifinancial.com>,ORBI Support <support@orbifinancial.com>,ORBI Sales <sales@orbifinancial.com>,ORBI Shop <shop@orbifinancial.com>,ORBI Security <security@orbifinancial.com>,ORBI Admin <admin@orbifinancial.com>,ORBI Info <info@orbifinancial.com>"',
                 'ORBI_TALK_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxx',
                 '',
                 '# Cloudflare Email Routing handles replies to each From alias.',
@@ -418,8 +446,56 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
         ),
       },
       {
-        id: 'pairing',
+        id: 'orbi-shop',
         eyebrow: 'Slide 07',
+        title: 'ORBI Shop trusted product integration',
+        summary:
+          'ORBI Shop uses its own scoped Talk key and approved shop templates. It can send marketplace emails and SMS without reusing ORBI Core credentials.',
+        icon: ShoppingBag,
+        accent: 'from-pink-500 to-orange-500',
+        body: (
+          <div className="space-y-5">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <MiniCard
+                icon={KeyRound}
+                title="Product identity"
+                detail="Store the generated scoped credential as ORBI_SHOP_TALK_API_KEY inside the ORBI Shop backend only."
+              />
+              <MiniCard
+                icon={Mail}
+                title="Sender identity"
+                detail="Default marketplace sender is ORBI Shop <shop@orbifinancial.com>. Support and security senders remain available for special cases."
+              />
+              <MiniCard
+                icon={ClipboardList}
+                title="Template pack"
+                detail="Import templates/orbi_shop_talk_templates.json to create order, seller, escrow, delivery, dispute, and refund messages."
+              />
+            </div>
+            <CodeBlock
+              label="ORBI Shop env"
+              value={`ORBI_TALK_GATEWAY_URL=https://talk.orbifinancial.com
+ORBI_SHOP_TALK_API_KEY=<generated scoped Talk API credential>
+ORBI_SHOP_TALK_OWNER_UID=<firebase owner uid or trusted service owner>
+ORBI_SHOP_TALK_OWNER_EMAIL=shop@orbifinancial.com`}
+            />
+            <div className="grid gap-5 xl:grid-cols-2">
+              <CodeBlock label="ORBI Shop template payload" value={orbiShopTemplatePayload} />
+              <CodeBlock label="ORBI Shop cURL" value={curlOrbiShopTemplate} />
+            </div>
+            <div className="rounded-[24px] border border-pink-200 bg-pink-50 p-5">
+              <h4 className="text-sm font-black text-pink-950">Imported template names</h4>
+              <p className="mt-2 text-[13px] font-bold leading-6 text-pink-800">
+                SHOP_ORDER_CREATED, SHOP_SELLER_NEW_ORDER, SHOP_ESCROW_FUNDED, SHOP_DELIVERY_CONFIRMED,
+                SHOP_DISPUTE_OPENED, and SHOP_REFUND_PROCESSED. Initial variants include Swahili email and SMS.
+              </p>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: 'pairing',
+        eyebrow: 'Slide 08',
         title: 'Device pairing and live relay',
         summary:
           'Relay devices connect over WebSocket, identify themselves, maintain heartbeat, and receive SEND_SMS jobs in real time.',
@@ -452,7 +528,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'queue',
-        eyebrow: 'Slide 08',
+        eyebrow: 'Slide 09',
         title: 'Queue recovery and force resend',
         summary:
           'Unsent jobs stay in Firestore and are retried silently. Operators can also force a resend sweep when a relay is available.',
@@ -478,7 +554,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'status',
-        eyebrow: 'Slide 09',
+        eyebrow: 'Slide 10',
         title: 'Status callbacks and audit trail',
         summary:
           'The relay reports sent, failed, and delivered states. ORBI Talk updates message_logs and keeps operators inside Message Tracking.',
@@ -516,7 +592,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
       },
       {
         id: 'checklist',
-        eyebrow: 'Slide 10',
+        eyebrow: 'Slide 11',
         title: 'Production integration checklist',
         summary:
           'Use this as the go-live sequence when connecting ORBI Core, Render, Firebase, and Android relay devices.',

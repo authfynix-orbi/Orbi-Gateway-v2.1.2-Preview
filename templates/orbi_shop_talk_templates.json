@@ -1,0 +1,110 @@
+[
+  {
+    "name": "SHOP_ORDER_CREATED",
+    "language": "sw",
+    "subject": "Tumepokea oda yako {{orderId}}",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Habari {{customerName}}, tumepokea oda yako {{orderId}} ya {{currency}} {{amount}}. Malipo yakithibitishwa, tutamlinda mnunuzi na muuzaji kupitia mfumo salama wa ORBI Shop. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_ORDER_CREATED",
+    "language": "sw",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Oda {{orderId}} imepokelewa. Kiasi {{currency}} {{amount}}. Tutakujulisha malipo na usafirishaji yakithibitishwa. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_SELLER_NEW_ORDER",
+    "language": "sw",
+    "subject": "Oda mpya imeingia {{orderId}}",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Habari {{sellerName}}, umepokea oda mpya {{orderId}} kutoka kwa {{customerName}}. Thibitisha bidhaa na hatua za usafirishaji ndani ya ORBI Shop. Kiasi: {{currency}} {{amount}}. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_SELLER_NEW_ORDER",
+    "language": "sw",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Oda mpya {{orderId}} imeingia. Mteja: {{customerName}}. Kiasi {{currency}} {{amount}}. Fungua ORBI Shop kuthibitisha.",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_ESCROW_FUNDED",
+    "language": "sw",
+    "subject": "Malipo ya oda {{orderId}} yamelindwa",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Habari {{customerName}}, malipo ya {{currency}} {{amount}} kwa oda {{orderId}} yamelindwa kwenye ORBI Escrow. Muuzaji atalipwa baada ya uthibitisho wa kupokea bidhaa. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_ESCROW_FUNDED",
+    "language": "sw",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Malipo ya oda {{orderId}} yamelindwa kwenye escrow. Kiasi {{currency}} {{amount}}. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_DELIVERY_CONFIRMED",
+    "language": "sw",
+    "subject": "Uthibitisho wa bidhaa kwa oda {{orderId}}",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Habari {{customerName}}, tumepokea uthibitisho wa bidhaa kwa oda {{orderId}}. Kama kila kitu kiko sawa, malipo yataendelea kwa muuzaji kulingana na sera za ORBI Shop. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_DELIVERY_CONFIRMED",
+    "language": "sw",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Uthibitisho wa bidhaa kwa oda {{orderId}} umepokelewa. Malipo yataendelea kulingana na sera. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_DISPUTE_OPENED",
+    "language": "sw",
+    "subject": "Kesi ya oda {{orderId}} imefunguliwa",
+    "fromEmail": "ORBI Support <support@orbifinancial.com>",
+    "body": "Habari {{customerName}}, kesi ya oda {{orderId}} imefunguliwa na timu ya ORBI Shop itapitia taarifa zako. Tafadhali usifanye malipo nje ya mfumo. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_DISPUTE_OPENED",
+    "language": "sw",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Kesi ya oda {{orderId}} imefunguliwa. Timu yetu itapitia taarifa na kukujulisha hatua inayofuata. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_REFUND_PROCESSED",
+    "language": "sw",
+    "subject": "Refund ya oda {{orderId}} imechakatwa",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Habari {{customerName}}, refund ya {{currency}} {{amount}} kwa oda {{orderId}} imechakatwa. Muda wa kuonekana kwenye akaunti unaweza kutegemea njia ya malipo. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_REFUND_PROCESSED",
+    "language": "sw",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Refund ya oda {{orderId}} imechakatwa. Kiasi {{currency}} {{amount}}. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  }
+]
