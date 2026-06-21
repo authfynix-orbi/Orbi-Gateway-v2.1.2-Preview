@@ -106,5 +106,185 @@
     "body": "ORBI Shop: Refund ya oda {{orderId}} imechakatwa. Kiasi {{currency}} {{amount}}. Ref: {{refId}}",
     "channel": "sms",
     "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_CAMPAIGN_PROMO_BUYERS",
+    "language": "sw",
+    "subject": "Ofa Kabambe ya Wiki! Fursa ya Kununua kwa Bei Nafuu",
+    "fromEmail": "ORBI Shop Offers <offers@orbifinancial.com>",
+    "body": "Habari {{recipientName}}, kuna ofa mpya kwenye ORBI Shop kwa ajili yako. Nunua kwa amani kupitia mfumo salama wa escrow na upate bidhaa kutoka kwa wauzaji waliothibitishwa. Fungua ofa hapa: {{actionLink}}",
+    "channel": "email",
+    "messageType": "promotional"
+  },
+  {
+    "name": "SHOP_CAMPAIGN_PROMO_BUYERS",
+    "language": "sw",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Ofa kabambe kwa ajili yako pekee leo! Pata punguzo kubwa la bei hapa: {{actionLink}}",
+    "channel": "sms",
+    "messageType": "promotional"
+  },
+  {
+    "name": "SHOP_CAMPAIGN_PROMO_SELLERS",
+    "language": "sw",
+    "subject": "Ongeza Mauzo ya Duka Lako - ORBI Shop Seller Guide",
+    "fromEmail": "ORBI Shop Merchants <sellers@orbifinancial.com>",
+    "body": "Habari {{recipientName}}, ORBI Shop imekuandalia mwongozo wa kuongeza mauzo, kuboresha bidhaa zako, na kujenga uaminifu kwa wateja. Fungua mwongozo hapa: {{actionLink}}",
+    "channel": "email",
+    "messageType": "promotional"
+  },
+  {
+    "name": "SHOP_CAMPAIGN_PROMO_SELLERS",
+    "language": "sw",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Partner: Ongeza mauzo ya duka lako kwa kuboresha orodha na bidhaa zako. Soma zaidi hapa: {{actionLink}}",
+    "channel": "sms",
+    "messageType": "promotional"
+  },
+  {
+    "name": "SHOP_ORDER_CREATED",
+    "language": "en",
+    "subject": "We received your order {{orderId}}",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Hello {{customerName}}, we received your order {{orderId}} for {{currency}} {{amount}}. Once payment is confirmed, ORBI Shop will protect both buyer and seller through our secure marketplace flow. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_ORDER_CREATED",
+    "language": "en",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Order {{orderId}} received. Amount {{currency}} {{amount}}. We will notify you once payment and delivery are confirmed. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_SELLER_NEW_ORDER",
+    "language": "en",
+    "subject": "New order received {{orderId}}",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Hello {{sellerName}}, you have received a new order {{orderId}} from {{customerName}}. Please confirm the item and delivery steps inside ORBI Shop. Amount: {{currency}} {{amount}}. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_SELLER_NEW_ORDER",
+    "language": "en",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: New order {{orderId}} received. Customer: {{customerName}}. Amount {{currency}} {{amount}}. Open ORBI Shop to confirm.",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_ESCROW_FUNDED",
+    "language": "en",
+    "subject": "Payment for order {{orderId}} is protected",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Hello {{customerName}}, your payment of {{currency}} {{amount}} for order {{orderId}} is now protected in ORBI Escrow. The seller will be paid after delivery confirmation according to ORBI Shop policy. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_ESCROW_FUNDED",
+    "language": "en",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Payment for order {{orderId}} is protected in escrow. Amount {{currency}} {{amount}}. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_DELIVERY_CONFIRMED",
+    "language": "en",
+    "subject": "Delivery confirmation for order {{orderId}}",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Hello {{customerName}}, we received delivery confirmation for order {{orderId}}. If everything is okay, payment will proceed to the seller according to ORBI Shop policy. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_DELIVERY_CONFIRMED",
+    "language": "en",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Delivery confirmation for order {{orderId}} has been received. Payment will continue according to policy. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_DISPUTE_OPENED",
+    "language": "en",
+    "subject": "Dispute opened for order {{orderId}}",
+    "fromEmail": "ORBI Support <support@orbifinancial.com>",
+    "body": "Hello {{customerName}}, a dispute has been opened for order {{orderId}} and the ORBI Shop team will review your information. Please do not make payments outside the platform. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_DISPUTE_OPENED",
+    "language": "en",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: A dispute has been opened for order {{orderId}}. Our team will review the details and update you on the next step. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_REFUND_PROCESSED",
+    "language": "en",
+    "subject": "Refund for order {{orderId}} has been processed",
+    "fromEmail": "ORBI Shop <shop@orbifinancial.com>",
+    "body": "Hello {{customerName}}, your refund of {{currency}} {{amount}} for order {{orderId}} has been processed. The time it takes to appear may depend on your payment method. Ref: {{refId}}",
+    "channel": "email",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_REFUND_PROCESSED",
+    "language": "en",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: Refund for order {{orderId}} has been processed. Amount {{currency}} {{amount}}. Ref: {{refId}}",
+    "channel": "sms",
+    "messageType": "transactional"
+  },
+  {
+    "name": "SHOP_CAMPAIGN_PROMO_BUYERS",
+    "language": "en",
+    "subject": "Weekly Deal Alert! Buy Safely at Better Prices",
+    "fromEmail": "ORBI Shop Offers <offers@orbifinancial.com>",
+    "body": "Hello {{recipientName}}, there is a new ORBI Shop offer for you. Buy with confidence through secure escrow and verified sellers. Open the offer here: {{actionLink}}",
+    "channel": "email",
+    "messageType": "promotional"
+  },
+  {
+    "name": "SHOP_CAMPAIGN_PROMO_BUYERS",
+    "language": "en",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Shop: A special offer is available for you today. Get better prices here: {{actionLink}}",
+    "channel": "sms",
+    "messageType": "promotional"
+  },
+  {
+    "name": "SHOP_CAMPAIGN_PROMO_SELLERS",
+    "language": "en",
+    "subject": "Grow Your Store - ORBI Shop Seller Guide",
+    "fromEmail": "ORBI Shop Merchants <sellers@orbifinancial.com>",
+    "body": "Hello {{recipientName}}, ORBI Shop has prepared a seller guide to help you grow sales, improve listings, and build buyer trust. Open the guide here: {{actionLink}}",
+    "channel": "email",
+    "messageType": "promotional"
+  },
+  {
+    "name": "SHOP_CAMPAIGN_PROMO_SELLERS",
+    "language": "en",
+    "subject": "",
+    "fromEmail": "",
+    "body": "ORBI Partner: Grow your store by improving your listings and products. Read more here: {{actionLink}}",
+    "channel": "sms",
+    "messageType": "promotional"
   }
 ]

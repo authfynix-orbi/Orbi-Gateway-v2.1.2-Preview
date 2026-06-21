@@ -29,6 +29,8 @@ ORBI Shop <shop@orbifinancial.com>
 Use these identities by purpose:
 
 - `shop@orbifinancial.com`: orders, escrow, delivery, receipts, marketplace lifecycle.
+- `offers@orbifinancial.com`: approved buyer offers, discovery campaigns, and promotional marketplace notices.
+- `sellers@orbifinancial.com`: seller education, merchant growth campaigns, and partner guidance.
 - `support@orbifinancial.com`: disputes, refunds requiring support, seller/customer assistance.
 - `security@orbifinancial.com`: fraud warnings, risky account or order alerts.
 - `no-reply@orbifinancial.com`: purely automated notices that should not receive replies.
@@ -45,8 +47,10 @@ Template names:
 - `SHOP_DELIVERY_CONFIRMED`
 - `SHOP_DISPUTE_OPENED`
 - `SHOP_REFUND_PROCESSED`
+- `SHOP_CAMPAIGN_PROMO_BUYERS`
+- `SHOP_CAMPAIGN_PROMO_SELLERS`
 
-Each template has `email` and `sms` variants in Swahili for the initial ORBI Shop rollout.
+Transactional and promotional templates have `email` and `sms` variants in both Swahili (`sw`) and English (`en`) for the initial ORBI Shop rollout.
 
 ## Send Template Example
 

@@ -222,13 +222,11 @@ export default function MessageTracker() {
 
     const fetchTemplates = async () => {
       try {
-        const userDoc = await getDoc(doc(db, 'users', auth.currentUser!.uid));
-        const isAdmin =
-          (userDoc.exists() && userDoc.data().role === 'admin') ||
-          (auth.currentUser?.email === 'auth.fynix@gmail.com' && auth.currentUser?.emailVerified === true);
-        const q = isAdmin
-          ? query(collection(db, 'message_templates'), orderBy('name'))
-          : query(collection(db, 'message_templates'), where('createdBy', '==', auth.currentUser!.uid), orderBy('name'));
+        const q = query(
+          collection(db, 'message_templates'),
+          where('createdBy', '==', auth.currentUser!.uid),
+          orderBy('name'),
+        );
         const snap = await getDocs(q);
         setTemplates(snap.docs.map((entry) => ({ id: entry.id, name: entry.data().name, body: entry.data().body })));
       } catch (error) {

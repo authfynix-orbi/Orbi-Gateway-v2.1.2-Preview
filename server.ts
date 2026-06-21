@@ -308,6 +308,11 @@ function renderTemplateContent(template: any, data: Record<string, unknown> | un
     subject: typeof template?.subject === "string" ? replaceTokens(template.subject) : "",
     body: replaceTokens(parsedBody),
     components: renderedComponents,
+    senderName: firstEmailDisplayName(
+      typeof template?.senderName === "string" ? replaceTokens(template.senderName) : undefined,
+      typeof template?.fromName === "string" ? replaceTokens(template.fromName) : undefined,
+      typeof template?.brandName === "string" ? replaceTokens(template.brandName) : undefined,
+    ),
   };
 }
 
@@ -342,9 +347,9 @@ function getAllowedEmailSenders() {
   const defaults = [
     process.env.ORBI_TALK_EMAIL_FROM?.trim(),
     "ORBI Financial <no-reply@orbifinancial.com>",
+    "ORBI Financial <notifications@orbifinancial.com>",
     "ORBI Support <support@orbifinancial.com>",
     "ORBI Sales <sales@orbifinancial.com>",
-    "ORBI Shop <shop@orbifinancial.com>",
     "ORBI Security <security@orbifinancial.com>",
     "ORBI Admin <admin@orbifinancial.com>",
     "ORBI Info <info@orbifinancial.com>",
@@ -360,7 +365,64 @@ function getAllowedEmailSenders() {
   return byAddress;
 }
 
-function resolveAllowedEmailSender(requestedFrom?: unknown) {
+function sanitizeEmailDisplayName(value?: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const sanitized = value
+    .replace(/[\r\n<>"\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return sanitized || undefined;
+}
+
+function firstEmailDisplayName(...values: unknown[]) {
+  for (const value of values) {
+    const displayName = sanitizeEmailDisplayName(value);
+    if (displayName) {
+      return displayName;
+    }
+  }
+  return undefined;
+}
+
+function firstEmailAddress(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value !== "string" || !value.trim()) {
+      continue;
+    }
+    const address = normalizeEmailRecipient(extractEmailAddress(value.trim()));
+    if (address) {
+      return address;
+    }
+  }
+  return undefined;
+}
+
+function isGenericMerchantDisplayName(value?: string) {
+  if (!value) {
+    return true;
+  }
+  return [
+    "merchant",
+    "merchant desk",
+    "merchant account",
+    "business",
+    "seller",
+    "unknown merchant",
+  ].includes(value.trim().toLowerCase());
+}
+
+function extractConfiguredDisplayName(sender: string) {
+  const bracketIndex = sender.lastIndexOf("<");
+  if (bracketIndex <= 0) {
+    return undefined;
+  }
+  return sanitizeEmailDisplayName(sender.slice(0, bracketIndex));
+}
+
+function resolveAllowedEmailSender(requestedFrom?: unknown, requestedDisplayName?: unknown) {
   const allowed = getAllowedEmailSenders();
   const fallback =
     process.env.ORBI_TALK_EMAIL_FROM?.trim()
@@ -369,7 +431,9 @@ function resolveAllowedEmailSender(requestedFrom?: unknown) {
   const requested = typeof requestedFrom === "string" ? requestedFrom.trim() : "";
   if (!requested) {
     const fallbackAddress = extractEmailAddress(fallback);
-    return allowed.get(fallbackAddress) || fallback;
+    const allowedSender = allowed.get(fallbackAddress) || fallback;
+    const displayName = sanitizeEmailDisplayName(requestedDisplayName);
+    return displayName ? `${displayName} <${fallbackAddress}>` : allowedSender;
   }
 
   const requestedAddress = extractEmailAddress(requested);
@@ -377,7 +441,11 @@ function resolveAllowedEmailSender(requestedFrom?: unknown) {
   if (!allowedSender) {
     throw new Error(`EMAIL_FROM_NOT_ALLOWED:${requestedAddress || "unknown"}`);
   }
-  return allowedSender;
+  const displayName =
+    sanitizeEmailDisplayName(requestedDisplayName)
+    || extractConfiguredDisplayName(requested)
+    || extractConfiguredDisplayName(allowedSender);
+  return displayName ? `${displayName} <${requestedAddress}>` : requestedAddress;
 }
 
 function resolveAllowedReplyTo(requestedReplyTo?: unknown) {
@@ -442,6 +510,7 @@ function buildEmailDeliveryHealth() {
 type EmailDeliveryInput = {
   to: string;
   from?: string;
+  fromName?: string;
   subject: string;
   text: string;
   html?: string;
@@ -456,7 +525,7 @@ async function sendEmailDelivery(input: EmailDeliveryInput) {
   }
 
   const from =
-    resolveAllowedEmailSender(input.from);
+    resolveAllowedEmailSender(input.from, input.fromName);
   if (!from) {
     throw new Error("EMAIL_FROM_NOT_CONFIGURED");
   }
@@ -1487,9 +1556,13 @@ async function startServer() {
           ? trustedCatalogOwnerUid
           : (req.externalAuth?.ownerUid || req.firebaseUser?.uid || null);
 
-      if (ownerUid) {
-        query = query.where("createdBy", "==", ownerUid);
+      if (!ownerUid) {
+        return res.status(400).json({
+          error: "TEMPLATE_OWNER_REQUIRED",
+          message: "Template catalogs must be scoped to an authenticated owner.",
+        });
       }
+      query = query.where("createdBy", "==", ownerUid);
       if (channel) {
         query = query.where("channel", "==", channel);
       }
@@ -2024,7 +2097,65 @@ async function startServer() {
 
   // Send Template API
   app.post("/api/send-template", authenticateFirebaseUserIfPresent, authenticateExternalRequest, requireAuthenticatedSender, requireCredentialScope(["send_template"]), async (req: any, res) => {
-    const { templateName, recipient, data, channel, language, messageType, ownerUid, ownerEmail, deviceId, requestId } = req.body;
+    const {
+      templateName,
+      recipient,
+      data,
+      channel,
+      language,
+      messageType,
+      ownerUid,
+      ownerEmail,
+      deviceId,
+      requestId,
+      brand,
+      brandCode,
+      senderName,
+      fromName,
+      sender,
+      platformName,
+      senderEmail,
+      fromEmail,
+      replyTo,
+      logoUrl,
+    } = req.body;
+    const templateData = data && typeof data === "object"
+      ? data as Record<string, unknown>
+      : {};
+    const requestBrand = brand && typeof brand === "object"
+      ? brand as Record<string, unknown>
+      : {};
+    let resolvedSenderName = firstEmailDisplayName(
+      templateData.businessName,
+      templateData.business_name,
+      templateData.merchantName,
+      templateData.merchant_name,
+      requestBrand.displayName,
+      senderName,
+      fromName,
+      sender,
+      platformName,
+      templateData.actorLabel,
+      templateData.actor_label,
+      templateData.brandDisplayName,
+      templateData.brand_display_name,
+    );
+    const resolvedBrandCode = firstEmailDisplayName(
+      brandCode,
+      requestBrand.code,
+      templateData.brandCode,
+      templateData.brand_code,
+    );
+    const merchantBrandRequested =
+      String(requestBrand.source || "").toLowerCase() === "merchant"
+      || String(resolvedBrandCode || "").toUpperCase().startsWith("MERCHANT_")
+      || Boolean(
+        templateData.businessName
+        || templateData.business_name
+        || templateData.merchantName
+        || templateData.merchant_name,
+      );
+
     logTrace("send_template.request", {
       templateName,
       recipient,
@@ -2035,13 +2166,14 @@ async function startServer() {
       requestedOwnerEmail: ownerEmail || null,
       requestedDeviceId: deviceId || null,
       requestId: requestId || null,
+      brandCode: resolvedBrandCode || null,
+      senderName: resolvedSenderName || null,
       authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous"),
     });
 
     if (!templateName || !recipient || !channel) {
       return res.status(400).json({ error: "templateName, recipient, and channel are required" });
     }
-
     try {
       const adminApp = getFirebaseAdmin();
       if (!adminApp) {
@@ -2093,9 +2225,29 @@ async function startServer() {
       const template = snapshot.docs[0].data();
       const renderedTemplate = renderTemplateContent(
         template,
-        data && typeof data === "object" ? data as Record<string, unknown> : undefined,
+        templateData,
       );
+      resolvedSenderName = resolvedSenderName || renderedTemplate.senderName;
+      if (channel === "email" && merchantBrandRequested && isGenericMerchantDisplayName(resolvedSenderName)) {
+        return res.status(400).json({
+          error: "MERCHANT_NOTIFICATION_BRAND_REQUIRED",
+          message: "Merchant email templates require a resolved business name.",
+        });
+      }
       const parsedBody = renderedTemplate.body;
+      const resolvedSenderEmail = firstEmailAddress(
+        senderEmail,
+        fromEmail,
+        requestBrand.senderEmail,
+        requestBrand.fromEmail,
+        template.fromEmail,
+        template.senderEmail,
+      );
+      const resolvedReplyTo = firstEmailDisplayName(
+        replyTo,
+        requestBrand.replyTo,
+        template.replyTo,
+      );
 
       // Determine device to use
       let targetDeviceId = deviceId;
@@ -2164,6 +2316,11 @@ async function startServer() {
             messageType: messageType || template.messageType || "transactional",
             createdBy: resolvedOwnerUid,
             source: messageSource,
+            ...(channel === "email" && resolvedSenderName ? { senderName: resolvedSenderName } : {}),
+            ...(channel === "email" && resolvedSenderEmail ? { fromEmail: resolvedSenderEmail } : {}),
+            ...(channel === "email" && resolvedReplyTo ? { replyTo: resolvedReplyTo } : {}),
+            ...(channel === "email" && resolvedBrandCode ? { brandCode: resolvedBrandCode } : {}),
+            ...(channel === "email" && logoUrl ? { logoUrl } : {}),
             requestId: normalizedRequestId,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
@@ -2195,6 +2352,11 @@ async function startServer() {
           messageType: messageType || template.messageType || "transactional",
           createdBy: resolvedOwnerUid,
           source: messageSource,
+          ...(channel === "email" && resolvedSenderName ? { senderName: resolvedSenderName } : {}),
+          ...(channel === "email" && resolvedSenderEmail ? { fromEmail: resolvedSenderEmail } : {}),
+          ...(channel === "email" && resolvedReplyTo ? { replyTo: resolvedReplyTo } : {}),
+          ...(channel === "email" && resolvedBrandCode ? { brandCode: resolvedBrandCode } : {}),
+          ...(channel === "email" && logoUrl ? { logoUrl } : {}),
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
         };
@@ -2285,8 +2447,9 @@ async function startServer() {
           const emailResult = await sendEmailDelivery({
             to: recipient,
             subject: renderedTemplate.subject || template.subject || "ORBI Notification",
-            from: template.fromEmail || template.senderEmail,
-            replyTo: template.replyTo,
+            from: resolvedSenderEmail,
+            fromName: resolvedSenderName,
+            replyTo: resolvedReplyTo,
             text: parsedBody,
             html: renderedTemplate.components.find((component: any) => component?.type === "html")?.text,
             messageId,
@@ -2360,9 +2523,33 @@ async function startServer() {
       requestId,
       subject,
       fromEmail,
+      senderEmail,
+      senderName,
+      fromName,
+      sender,
+      platformName,
+      brand,
+      brandCode,
       replyTo,
     } = req.body;
     const channel = options.channelOverride || rawChannel;
+    const requestBrand = brand && typeof brand === "object"
+      ? brand as Record<string, unknown>
+      : {};
+    const resolvedSenderName = firstEmailDisplayName(
+      requestBrand.displayName,
+      senderName,
+      fromName,
+      sender,
+      platformName,
+    );
+    const resolvedSenderEmail = firstEmailAddress(
+      senderEmail,
+      fromEmail,
+      requestBrand.senderEmail,
+      requestBrand.fromEmail,
+    );
+    const resolvedBrandCode = firstEmailDisplayName(brandCode, requestBrand.code);
     logTrace("send_message.request", {
       recipient,
       channel,
@@ -2373,7 +2560,9 @@ async function startServer() {
       messageType,
       requestId: requestId || null,
       subject: subject || null,
-      fromEmail: fromEmail || null,
+      fromEmail: resolvedSenderEmail || null,
+      senderName: resolvedSenderName || null,
+      brandCode: resolvedBrandCode || null,
       replyTo: replyTo || null,
       authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous"),
     });
@@ -2468,7 +2657,9 @@ async function startServer() {
             recipient,
             body,
             ...(channel === "email" ? { subject: subject || "ORBI Notification" } : {}),
-            ...(channel === "email" && fromEmail ? { fromEmail } : {}),
+            ...(channel === "email" && resolvedSenderEmail ? { fromEmail: resolvedSenderEmail } : {}),
+            ...(channel === "email" && resolvedSenderName ? { senderName: resolvedSenderName } : {}),
+            ...(channel === "email" && resolvedBrandCode ? { brandCode: resolvedBrandCode } : {}),
             ...(channel === "email" && replyTo ? { replyTo } : {}),
             status: "pending",
             channel,
@@ -2498,7 +2689,9 @@ async function startServer() {
           recipient,
           body,
           ...(channel === "email" ? { subject: subject || "ORBI Notification" } : {}),
-          ...(channel === "email" && fromEmail ? { fromEmail } : {}),
+          ...(channel === "email" && resolvedSenderEmail ? { fromEmail: resolvedSenderEmail } : {}),
+          ...(channel === "email" && resolvedSenderName ? { senderName: resolvedSenderName } : {}),
+          ...(channel === "email" && resolvedBrandCode ? { brandCode: resolvedBrandCode } : {}),
           ...(channel === "email" && replyTo ? { replyTo } : {}),
           status: "pending",
           channel,
@@ -2590,7 +2783,8 @@ async function startServer() {
         try {
           const emailResult = await sendEmailDelivery({
             to: recipient,
-            from: fromEmail,
+            from: resolvedSenderEmail,
+            fromName: resolvedSenderName,
             subject: subject || "ORBI Notification",
             text: body,
             replyTo,

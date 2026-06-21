@@ -426,7 +426,7 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
                 'ORBI_TALK_EMAIL_PROVIDER=resend',
                 'ORBI_TALK_EMAIL_FROM="ORBI Financial <no-reply@orbifinancial.com>"',
                 'ORBI_TALK_EMAIL_REPLY_TO=""',
-                'ORBI_TALK_EMAIL_ALLOWED_FROM="ORBI Financial <no-reply@orbifinancial.com>,ORBI Support <support@orbifinancial.com>,ORBI Sales <sales@orbifinancial.com>,ORBI Shop <shop@orbifinancial.com>,ORBI Security <security@orbifinancial.com>,ORBI Admin <admin@orbifinancial.com>,ORBI Info <info@orbifinancial.com>"',
+                'ORBI_TALK_EMAIL_ALLOWED_FROM="ORBI Financial <no-reply@orbifinancial.com>,ORBI Support <support@orbifinancial.com>,ORBI Sales <sales@orbifinancial.com>,ORBI Shop <shop@orbifinancial.com>,ORBI Shop Offers <offers@orbifinancial.com>,ORBI Shop Merchants <sellers@orbifinancial.com>,ORBI Security <security@orbifinancial.com>,ORBI Admin <admin@orbifinancial.com>,ORBI Info <info@orbifinancial.com>"',
                 'ORBI_TALK_RESEND_API_KEY=re_xxxxxxxxxxxxxxxxx',
                 '',
                 '# Cloudflare Email Routing handles replies to each From alias.',
@@ -464,12 +464,12 @@ ORBI_TALK_GATEWAY_USER_EMAIL=ops@orbifinancial.com`}
               <MiniCard
                 icon={Mail}
                 title="Sender identity"
-                detail="Default marketplace sender is ORBI Shop <shop@orbifinancial.com>. Support and security senders remain available for special cases."
+                detail="Default marketplace sender is ORBI Shop <shop@orbifinancial.com>. Offers and seller sender identities are approved for campaigns."
               />
               <MiniCard
                 icon={ClipboardList}
                 title="Template pack"
-                detail="Import templates/orbi_shop_talk_templates.json to create order, seller, escrow, delivery, dispute, and refund messages."
+                detail="Import templates/orbi_shop_talk_templates.json to create lifecycle, escrow, dispute, refund, buyer promo, and seller growth messages."
               />
             </div>
             <CodeBlock
@@ -487,7 +487,8 @@ ORBI_SHOP_TALK_OWNER_EMAIL=shop@orbifinancial.com`}
               <h4 className="text-sm font-black text-pink-950">Imported template names</h4>
               <p className="mt-2 text-[13px] font-bold leading-6 text-pink-800">
                 SHOP_ORDER_CREATED, SHOP_SELLER_NEW_ORDER, SHOP_ESCROW_FUNDED, SHOP_DELIVERY_CONFIRMED,
-                SHOP_DISPUTE_OPENED, and SHOP_REFUND_PROCESSED. Initial variants include Swahili email and SMS.
+                SHOP_DISPUTE_OPENED, SHOP_REFUND_PROCESSED, SHOP_CAMPAIGN_PROMO_BUYERS, and
+                SHOP_CAMPAIGN_PROMO_SELLERS. Initial variants include Swahili and English email/SMS.
               </p>
             </div>
           </div>

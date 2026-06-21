@@ -11,8 +11,8 @@ import {
   serverTimestamp,
   writeBatch,
   getDocs,
-  where,
   getDoc,
+  where,
   limit as firestoreLimit
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
@@ -55,7 +55,14 @@ interface Template {
   }>;
   messageType: 'transactional' | 'promotional';
   createdAt: any;
+  createdBy?: string;
 }
+
+type TemplateOwner = {
+  id: string;
+  email?: string;
+  displayName?: string;
+};
 
 type TemplateComponent = {
   type: string;
@@ -163,6 +170,20 @@ const emailSenderOptions = [
     value: 'ORBI Shop <shop@orbifinancial.com>',
   },
   {
+    label: 'Shop Offers',
+    email: 'offers@orbifinancial.com',
+    badge: 'Promos',
+    description: 'Approved buyer campaigns, marketplace offers, and promotional discovery messages.',
+    value: 'ORBI Shop Offers <offers@orbifinancial.com>',
+  },
+  {
+    label: 'Shop Merchants',
+    email: 'sellers@orbifinancial.com',
+    badge: 'Sellers',
+    description: 'Seller education, merchant growth campaigns, and partner marketplace guidance.',
+    value: 'ORBI Shop Merchants <sellers@orbifinancial.com>',
+  },
+  {
     label: 'Security',
     email: 'security@orbifinancial.com',
     badge: 'Risk',
@@ -190,6 +211,12 @@ export default function TemplateManager() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
+  const [channelFilter, setChannelFilter] = useState<'all' | Template['channel']>('all');
+  const [languageFilter, setLanguageFilter] = useState('all');
+  const [messageTypeFilter, setMessageTypeFilter] = useState<'all' | Template['messageType']>('all');
+  const [ownerFilter, setOwnerFilter] = useState('__mine__');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [templateOwners, setTemplateOwners] = useState<TemplateOwner[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Form State
@@ -228,10 +255,22 @@ export default function TemplateManager() {
   // Import State
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const filteredTemplates = templates.filter(t => 
-    (t.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (t.body || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const availableLanguages = Array.from(
+    new Set(templates.map((template) => template.language).filter(Boolean)),
+  ).sort();
+
+  const filteredTemplates = templates.filter((template) => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !normalizedSearch ||
+      (template.name || '').toLowerCase().includes(normalizedSearch) ||
+      (template.body || '').toLowerCase().includes(normalizedSearch);
+    const matchesChannel = channelFilter === 'all' || template.channel === channelFilter;
+    const matchesLanguage = languageFilter === 'all' || template.language === languageFilter;
+    const matchesMessageType =
+      messageTypeFilter === 'all' || template.messageType === messageTypeFilter;
+    return matchesSearch && matchesChannel && matchesLanguage && matchesMessageType;
+  });
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredTemplates.length && filteredTemplates.length > 0) {
@@ -340,17 +379,45 @@ export default function TemplateManager() {
 
     const setupTemplatesListener = async () => {
       try {
-        const userDoc = await getDoc(doc(db, 'users', auth.currentUser!.uid));
-        const isAdmin = (userDoc.exists() && userDoc.data().role === 'admin') || 
-                        (auth.currentUser?.email === 'auth.fynix@gmail.com' && auth.currentUser?.emailVerified === true);
+        const currentUser = auth.currentUser!;
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        const adminAccess =
+          (userDoc.exists() && userDoc.data().role === 'admin') ||
+          (
+            ['danielzachason25@gmail.com', 'auth.fynix@gmail.com'].includes(currentUser.email || '') &&
+            currentUser.emailVerified === true
+          );
+        setIsAdmin(adminAccess);
 
-        const q = isAdmin
-          ? query(collection(db, 'message_templates'), orderBy('createdAt', 'desc'))
-          : query(
-              collection(db, 'message_templates'),
-              where('createdBy', '==', auth.currentUser!.uid),
-              orderBy('createdAt', 'desc'),
-            );
+        if (adminAccess) {
+          const usersSnapshot = await getDocs(collection(db, 'users'));
+          setTemplateOwners(usersSnapshot.docs.map((entry) => ({
+            id: entry.id,
+            email: entry.data().email,
+            displayName: entry.data().displayName || entry.data().name,
+          })).sort((left, right) => (
+            String(left.displayName || left.email || left.id)
+              .localeCompare(String(right.displayName || right.email || right.id))
+          )));
+        } else {
+          setTemplateOwners([]);
+          if (ownerFilter !== '__mine__') {
+            setOwnerFilter('__mine__');
+          }
+        }
+
+        const ownerUid =
+          ownerFilter === '__mine__'
+            ? currentUser.uid
+            : ownerFilter;
+        const q =
+          adminAccess && ownerFilter === '__all__'
+            ? query(collection(db, 'message_templates'), orderBy('createdAt', 'desc'))
+            : query(
+                collection(db, 'message_templates'),
+                where('createdBy', '==', ownerUid),
+                orderBy('createdAt', 'desc'),
+              );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
           const docs = snapshot.docs.map(doc => ({
@@ -379,7 +446,11 @@ export default function TemplateManager() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [auth.currentUser]);
+  }, [auth.currentUser, ownerFilter]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [ownerFilter]);
 
   const handleSeedSample = async () => {
     if (!db || !auth?.currentUser) return;
@@ -678,7 +749,7 @@ export default function TemplateManager() {
 
       {/* Controls Section */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between enterprise-card p-3 shadow-sm">
-        <div className="relative w-full md:w-96">
+        <div className="relative w-full md:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             id="templateSearch"
@@ -689,6 +760,59 @@ export default function TemplateManager() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 transition-all"
           />
+        </div>
+        <div className={`grid w-full grid-cols-1 gap-2 sm:grid-cols-2 ${isAdmin ? 'xl:grid-cols-4' : 'xl:grid-cols-3'} md:w-auto`}>
+          {isAdmin && (
+            <select
+              value={ownerFilter}
+              onChange={(event) => setOwnerFilter(event.target.value)}
+              className="rounded-xl border-none bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 focus:ring-2 focus:ring-amber-500"
+              aria-label="Filter templates by owner"
+            >
+              <option value="__mine__">My templates</option>
+              <option value="__all__">All workspaces</option>
+              {templateOwners
+                .filter((owner) => owner.id !== auth.currentUser?.uid)
+                .map((owner) => (
+                  <option key={owner.id} value={owner.id}>
+                    {owner.displayName || owner.email || owner.id}
+                  </option>
+                ))}
+            </select>
+          )}
+          <select
+            value={channelFilter}
+            onChange={(event) => setChannelFilter(event.target.value as typeof channelFilter)}
+            className="rounded-xl border-none bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500"
+            aria-label="Filter templates by channel"
+          >
+            <option value="all">All channels</option>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="push">Push</option>
+          </select>
+          <select
+            value={languageFilter}
+            onChange={(event) => setLanguageFilter(event.target.value)}
+            className="rounded-xl border-none bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500"
+            aria-label="Filter templates by language"
+          >
+            <option value="all">All languages</option>
+            {availableLanguages.map((language) => (
+              <option key={language} value={language}>{language.toUpperCase()}</option>
+            ))}
+          </select>
+          <select
+            value={messageTypeFilter}
+            onChange={(event) => setMessageTypeFilter(event.target.value as typeof messageTypeFilter)}
+            className="rounded-xl border-none bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500"
+            aria-label="Filter templates by message type"
+          >
+            <option value="all">All types</option>
+            <option value="transactional">Transactional</option>
+            <option value="promotional">Promotional</option>
+          </select>
         </div>
         <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
           <button
