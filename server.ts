@@ -359,6 +359,12 @@ function renderTemplateContent(template: any, data: Record<string, unknown> | un
       typeof template?.fromName === "string" ? replaceTokens(template.fromName) : undefined,
       typeof template?.brandName === "string" ? replaceTokens(template.brandName) : undefined,
     ),
+    logoUrl: typeof template?.logoUrl === "string" ? replaceTokens(template.logoUrl) : "",
+    imageUrls: Array.isArray(template?.imageUrls)
+      ? template.imageUrls.map((url: unknown) => (
+          typeof url === "string" ? replaceTokens(url) : ""
+        )).filter(Boolean)
+      : [],
   };
 }
 
@@ -373,6 +379,74 @@ function escapeHtml(input: string) {
 
 function renderPlainTextAsHtml(input: string) {
   return `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a;white-space:pre-wrap">${escapeHtml(input)}</div>`;
+}
+
+function getAllowedEmailImageHosts() {
+  const configured = String(
+    process.env.ORBI_TALK_EMAIL_IMAGE_ALLOWED_HOSTS
+    || "media-stock.orbifinancial.com,media-store.orbifinancial.com,orbishop-storage.orbifinancial.com",
+  )
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(configured);
+}
+
+function isAllowedEmailImageHost(hostname: string, allowedHosts: Set<string>) {
+  const normalized = hostname.toLowerCase();
+  return Array.from(allowedHosts).some((allowed) => (
+    allowed.startsWith("*.")
+      ? normalized.endsWith(allowed.slice(1))
+      : normalized === allowed
+  ));
+}
+
+function normalizeEmailImageUrl(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(value.trim());
+    if (
+      parsed.protocol !== "https:"
+      || parsed.username
+      || parsed.password
+      || !isAllowedEmailImageHost(parsed.hostname, getAllowedEmailImageHosts())
+    ) {
+      throw new Error("EMAIL_IMAGE_URL_NOT_ALLOWED");
+    }
+    parsed.hash = "";
+    return parsed.toString();
+  } catch (error: any) {
+    if (error?.message === "EMAIL_IMAGE_URL_NOT_ALLOWED") throw error;
+    throw new Error("EMAIL_IMAGE_URL_INVALID");
+  }
+}
+
+function normalizeEmailImageUrls(...values: unknown[]) {
+  const flattened = values.flatMap((value) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string" && value.includes(",")) return value.split(",");
+    return value == null ? [] : [value];
+  });
+  return Array.from(new Set(flattened.map(normalizeEmailImageUrl).filter(Boolean))).slice(0, 6) as string[];
+}
+
+function renderEmailHtml(input: {
+  text: string;
+  html?: string;
+  senderName?: string;
+  logoUrl?: string;
+  imageUrls?: string[];
+}) {
+  const content = input.html || renderPlainTextAsHtml(input.text);
+  const logo = input.logoUrl
+    ? `<img src="${escapeHtml(input.logoUrl)}" alt="${escapeHtml(input.senderName || "Brand")}" width="120" style="display:block;max-width:120px;max-height:72px;width:auto;height:auto;margin:0 auto 20px;border:0;" />`
+    : "";
+  const images = (input.imageUrls || [])
+    .map((url) => `<img src="${escapeHtml(url)}" alt="" style="display:block;width:100%;max-width:640px;height:auto;margin:20px auto 0;border:0;border-radius:12px;" />`)
+    .join("");
+  return `<div style="margin:0;padding:24px;background:#f8fafc;"><div style="max-width:680px;margin:0 auto;padding:28px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;">${logo}${content}${images}</div></div>`;
 }
 
 function normalizeEmailRecipient(input: unknown) {
@@ -562,6 +636,8 @@ type EmailDeliveryInput = {
   html?: string;
   messageId?: string;
   replyTo?: string;
+  logoUrl?: string;
+  imageUrls?: string[];
 };
 
 async function sendEmailDelivery(input: EmailDeliveryInput) {
@@ -578,7 +654,13 @@ async function sendEmailDelivery(input: EmailDeliveryInput) {
 
   const subject = input.subject?.trim() || "ORBI Notification";
   const text = input.text || "";
-  const html = input.html || renderPlainTextAsHtml(text);
+  const html = renderEmailHtml({
+    text,
+    html: input.html,
+    senderName: input.fromName,
+    logoUrl: input.logoUrl,
+    imageUrls: input.imageUrls,
+  });
   const replyTo =
     resolveAllowedReplyTo(input.replyTo) || undefined;
   const provider =
@@ -689,6 +771,10 @@ function normalizeImportedTemplate(input: any) {
     senderName: typeof input?.senderName === "string" ? input.senderName.trim() : "",
     fromEmail: typeof input?.fromEmail === "string" ? input.fromEmail.trim() : "",
     replyTo: typeof input?.replyTo === "string" ? input.replyTo.trim() : "",
+    logoUrl: typeof input?.logoUrl === "string" ? input.logoUrl.trim() : "",
+    imageUrls: Array.isArray(input?.imageUrls)
+      ? input.imageUrls.filter((url: unknown): url is string => typeof url === "string").map((url: string) => url.trim()).filter(Boolean).slice(0, 6)
+      : [],
     body: normalizedBody,
     channel: normalizedChannel,
     messageType: normalizedMessageType,
@@ -728,7 +814,11 @@ function extractTemplateVariables(template: Record<string, unknown>) {
 
   capture(template.subject);
   capture(template.senderName);
+  capture(template.logoUrl);
   capture(template.body);
+  if (Array.isArray(template.imageUrls)) {
+    for (const imageUrl of template.imageUrls) capture(imageUrl);
+  }
   if (Array.isArray(template.components)) {
     for (const component of template.components) {
       capture((component as any)?.text);
@@ -769,6 +859,19 @@ function validateImportedTemplate(template: Record<string, unknown>) {
 
   if (template.replyTo != null && (typeof template.replyTo !== "string" || template.replyTo.length >= 255)) {
     return "Template replyTo is invalid";
+  }
+
+  if (template.logoUrl != null && (typeof template.logoUrl !== "string" || template.logoUrl.length >= 2048)) {
+    return "Template logoUrl is invalid";
+  }
+
+  if (template.imageUrls != null) {
+    if (!Array.isArray(template.imageUrls) || template.imageUrls.length > 6) {
+      return "Template imageUrls are invalid";
+    }
+    if (template.imageUrls.some((url) => typeof url !== "string" || !url || url.length >= 2048)) {
+      return "Template imageUrls contain an invalid URL";
+    }
   }
 
   if (template.messageType !== "transactional" && template.messageType !== "promotional") {
@@ -1735,6 +1838,8 @@ async function startServer() {
           senderName: entry.senderName || "",
           fromEmail: entry.fromEmail || "",
           replyTo: entry.replyTo || "",
+          logoUrl: entry.logoUrl || "",
+          imageUrls: Array.isArray(entry.imageUrls) ? entry.imageUrls : [],
           body: entry.body || "",
           variables: extractTemplateVariables(entry),
         };
@@ -2268,6 +2373,8 @@ async function startServer() {
       fromEmail,
       replyTo,
       logoUrl,
+      imageUrl,
+      imageUrls,
     } = req.body;
     const templateData = data && typeof data === "object"
       ? data as Record<string, unknown>
@@ -2385,6 +2492,33 @@ async function startServer() {
         });
       }
       const parsedBody = renderedTemplate.body;
+      let resolvedLogoUrl: string | undefined;
+      let resolvedImageUrls: string[] = [];
+      if (channel === "email") {
+        try {
+          resolvedLogoUrl = normalizeEmailImageUrl(
+            logoUrl
+            || requestBrand.logoUrl
+            || templateData.logoUrl
+            || templateData.logo_url
+            || renderedTemplate.logoUrl,
+          );
+          resolvedImageUrls = normalizeEmailImageUrls(
+            imageUrls,
+            imageUrl,
+            templateData.imageUrls,
+            templateData.image_urls,
+            templateData.imageUrl,
+            templateData.image_url,
+            renderedTemplate.imageUrls,
+          );
+        } catch (error: any) {
+          return res.status(400).json({
+            error: error?.message || "EMAIL_IMAGE_URL_INVALID",
+            message: "Email images must use HTTPS URLs from an approved image host.",
+          });
+        }
+      }
       const resolvedSenderEmail = firstEmailAddress(
         senderEmail,
         fromEmail,
@@ -2470,7 +2604,8 @@ async function startServer() {
             ...(channel === "email" && resolvedSenderEmail ? { fromEmail: resolvedSenderEmail } : {}),
             ...(channel === "email" && resolvedReplyTo ? { replyTo: resolvedReplyTo } : {}),
             ...(channel === "email" && resolvedBrandCode ? { brandCode: resolvedBrandCode } : {}),
-            ...(channel === "email" && logoUrl ? { logoUrl } : {}),
+            ...(channel === "email" && resolvedLogoUrl ? { logoUrl: resolvedLogoUrl } : {}),
+            ...(channel === "email" && resolvedImageUrls.length ? { imageUrls: resolvedImageUrls } : {}),
             requestId: normalizedRequestId,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
@@ -2506,7 +2641,8 @@ async function startServer() {
           ...(channel === "email" && resolvedSenderEmail ? { fromEmail: resolvedSenderEmail } : {}),
           ...(channel === "email" && resolvedReplyTo ? { replyTo: resolvedReplyTo } : {}),
           ...(channel === "email" && resolvedBrandCode ? { brandCode: resolvedBrandCode } : {}),
-          ...(channel === "email" && logoUrl ? { logoUrl } : {}),
+          ...(channel === "email" && resolvedLogoUrl ? { logoUrl: resolvedLogoUrl } : {}),
+          ...(channel === "email" && resolvedImageUrls.length ? { imageUrls: resolvedImageUrls } : {}),
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
         };
@@ -2602,6 +2738,8 @@ async function startServer() {
             replyTo: resolvedReplyTo,
             text: parsedBody,
             html: renderedTemplate.components.find((component: any) => component?.type === "html")?.text,
+            logoUrl: resolvedLogoUrl,
+            imageUrls: resolvedImageUrls,
             messageId,
           });
           emailSent = true;
@@ -2681,6 +2819,9 @@ async function startServer() {
       brand,
       brandCode,
       replyTo,
+      logoUrl,
+      imageUrl,
+      imageUrls,
     } = req.body;
     const channel = options.channelOverride || rawChannel;
     const requestBrand = brand && typeof brand === "object"
@@ -2700,6 +2841,19 @@ async function startServer() {
       requestBrand.fromEmail,
     );
     const resolvedBrandCode = firstEmailDisplayName(brandCode, requestBrand.code);
+    let resolvedLogoUrl: string | undefined;
+    let resolvedImageUrls: string[] = [];
+    if (channel === "email") {
+      try {
+        resolvedLogoUrl = normalizeEmailImageUrl(logoUrl || requestBrand.logoUrl);
+        resolvedImageUrls = normalizeEmailImageUrls(imageUrls, imageUrl);
+      } catch (error: any) {
+        return res.status(400).json({
+          error: error?.message || "EMAIL_IMAGE_URL_INVALID",
+          message: "Email images must use HTTPS URLs from an approved image host.",
+        });
+      }
+    }
     logTrace("send_message.request", {
       recipient,
       channel,
@@ -2714,6 +2868,8 @@ async function startServer() {
       senderName: resolvedSenderName || null,
       brandCode: resolvedBrandCode || null,
       replyTo: replyTo || null,
+      logoUrl: resolvedLogoUrl || null,
+      imageCount: resolvedImageUrls.length,
       authType: req.externalAuth?.authType || (req.firebaseUser ? "firebase_user" : "anonymous"),
     });
 
@@ -2811,6 +2967,8 @@ async function startServer() {
             ...(channel === "email" && resolvedSenderName ? { senderName: resolvedSenderName } : {}),
             ...(channel === "email" && resolvedBrandCode ? { brandCode: resolvedBrandCode } : {}),
             ...(channel === "email" && replyTo ? { replyTo } : {}),
+            ...(channel === "email" && resolvedLogoUrl ? { logoUrl: resolvedLogoUrl } : {}),
+            ...(channel === "email" && resolvedImageUrls.length ? { imageUrls: resolvedImageUrls } : {}),
             status: "pending",
             channel,
             messageType,
@@ -2843,6 +3001,8 @@ async function startServer() {
           ...(channel === "email" && resolvedSenderName ? { senderName: resolvedSenderName } : {}),
           ...(channel === "email" && resolvedBrandCode ? { brandCode: resolvedBrandCode } : {}),
           ...(channel === "email" && replyTo ? { replyTo } : {}),
+          ...(channel === "email" && resolvedLogoUrl ? { logoUrl: resolvedLogoUrl } : {}),
+          ...(channel === "email" && resolvedImageUrls.length ? { imageUrls: resolvedImageUrls } : {}),
           status: "pending",
           channel,
           messageType,
@@ -2938,6 +3098,8 @@ async function startServer() {
             subject: subject || "ORBI Notification",
             text: body,
             replyTo,
+            logoUrl: resolvedLogoUrl,
+            imageUrls: resolvedImageUrls,
             messageId,
           });
           emailSent = true;

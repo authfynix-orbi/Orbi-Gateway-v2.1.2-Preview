@@ -50,6 +50,8 @@ interface Template {
   senderName?: string;
   fromEmail?: string;
   replyTo?: string;
+  logoUrl?: string;
+  imageUrls?: string[];
   body: string;
   components?: Array<{
     type: string;
@@ -90,6 +92,8 @@ const buildTemplatePayload = ({
   senderName,
   fromEmail,
   replyTo,
+  logoUrl,
+  imageUrls,
   body,
   channel,
   messageType,
@@ -101,6 +105,8 @@ const buildTemplatePayload = ({
   senderName: string;
   fromEmail: string;
   replyTo: string;
+  logoUrl: string;
+  imageUrls: string;
   body: string;
   channel: Template['channel'];
   messageType: Template['messageType'];
@@ -115,6 +121,8 @@ const buildTemplatePayload = ({
     senderName?: string;
     fromEmail?: string;
     replyTo?: string;
+    logoUrl?: string;
+    imageUrls?: string[];
     body: string;
     channel: Template['channel'];
     messageType: Template['messageType'];
@@ -126,6 +134,16 @@ const buildTemplatePayload = ({
     ...(channel === 'email' && senderName.trim() ? { senderName: senderName.trim() } : {}),
     ...(channel === 'email' && fromEmail.trim() ? { fromEmail: fromEmail.trim() } : {}),
     ...(channel === 'email' && replyTo.trim() ? { replyTo: replyTo.trim() } : {}),
+    ...(channel === 'email' && logoUrl.trim() ? { logoUrl: logoUrl.trim() } : {}),
+    ...(channel === 'email' && imageUrls.trim()
+      ? {
+          imageUrls: imageUrls
+            .split(/[\n,]+/)
+            .map((url) => url.trim())
+            .filter(Boolean)
+            .slice(0, 6),
+        }
+      : {}),
     body: trimmedBody,
     channel,
     messageType,
@@ -243,6 +261,8 @@ export default function TemplateManager() {
   const [newSenderName, setNewSenderName] = useState('');
   const [newFromEmail, setNewFromEmail] = useState(emailSenderOptions[0].value);
   const [newReplyTo, setNewReplyTo] = useState('');
+  const [newLogoUrl, setNewLogoUrl] = useState('');
+  const [newImageUrls, setNewImageUrls] = useState('');
   const [newBody, setNewBody] = useState('');
   const [newChannel, setNewChannel] = useState<'sms' | 'whatsapp' | 'email' | 'push'>('sms');
   const [newMessageType, setNewMessageType] = useState<'transactional' | 'promotional'>('transactional');
@@ -345,6 +365,8 @@ export default function TemplateManager() {
         senderName: template.senderName || '',
         fromEmail: template.fromEmail || '',
         replyTo: template.replyTo || '',
+        logoUrl: template.logoUrl || '',
+        imageUrls: template.imageUrls || [],
         body: template.body,
         channel: template.channel,
         messageType: template.messageType,
@@ -545,6 +567,8 @@ export default function TemplateManager() {
         senderName: newSenderName,
         fromEmail: newFromEmail,
         replyTo: newReplyTo,
+        logoUrl: newLogoUrl,
+        imageUrls: newImageUrls,
         body: newBody,
         channel: newChannel,
         messageType: newMessageType,
@@ -577,6 +601,8 @@ export default function TemplateManager() {
     setNewSenderName('');
     setNewFromEmail(emailSenderOptions[0].value);
     setNewReplyTo('');
+    setNewLogoUrl('');
+    setNewImageUrls('');
     setNewBody('');
     setNewChannel('sms');
     setNewMessageType('transactional');
@@ -591,6 +617,8 @@ export default function TemplateManager() {
     setNewSenderName(template.senderName || '');
     setNewFromEmail(template.fromEmail || emailSenderOptions[0].value);
     setNewReplyTo(template.replyTo || '');
+    setNewLogoUrl(template.logoUrl || '');
+    setNewImageUrls((template.imageUrls || []).join('\n'));
     setNewBody(template.body);
     setNewChannel(template.channel);
     setNewMessageType(template.messageType);
@@ -606,6 +634,8 @@ export default function TemplateManager() {
     setNewSenderName(template.senderName || '');
     setNewFromEmail(template.fromEmail || emailSenderOptions[0].value);
     setNewReplyTo(template.replyTo || '');
+    setNewLogoUrl(template.logoUrl || '');
+    setNewImageUrls((template.imageUrls || []).join('\n'));
     setNewBody(template.body);
     setNewChannel(template.channel);
     setNewMessageType(template.messageType);
@@ -1246,6 +1276,29 @@ export default function TemplateManager() {
                         onChange={(e) => setNewReplyTo(e.target.value)}
                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
                       />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Brand Logo URL</label>
+                      <input
+                        type="url"
+                        placeholder="https://media-stock.orbifinancial.com/brands/logo.png"
+                        value={newLogoUrl}
+                        onChange={(e) => setNewLogoUrl(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Content Image URLs</label>
+                      <textarea
+                        rows={3}
+                        placeholder="One approved HTTPS image URL per line, maximum 6"
+                        value={newImageUrls}
+                        onChange={(e) => setNewImageUrls(e.target.value)}
+                        className="w-full resize-y px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
+                      />
+                      <p className="text-[10px] font-semibold text-slate-500">
+                        Images must be hosted on a domain configured in <span className="font-mono">ORBI_TALK_EMAIL_IMAGE_ALLOWED_HOSTS</span>.
+                      </p>
                     </div>
                     </div>
                     <div className="space-y-2">
