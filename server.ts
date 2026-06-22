@@ -24,17 +24,33 @@ const lastPersistedDeviceState = new Map<string, {
   fcmToken: string | null;
   ownerUid: string | null;
 }>();
+
+function envInteger(name: string, fallback: number, minimum: number) {
+  const parsed = Number.parseInt(String(process.env[name] || ""), 10);
+  return Number.isFinite(parsed) ? Math.max(parsed, minimum) : fallback;
+}
+
+function envEnabled(name: string, fallback = true) {
+  const value = String(process.env[name] || "").trim().toLowerCase();
+  if (!value) return fallback;
+  return !["0", "false", "no", "off", "disabled"].includes(value);
+}
+
 const HEARTBEAT_TIMEOUT_MS = 90000;    // 90 seconds - tolerate 30s client heartbeat cadence with network jitter
 const STALE_CHECK_INTERVAL_MS = 30000; // How often to check for stale devices
 const HEARTBEAT_WRITE_INTERVAL_MS = 5 * 60 * 1000;
 const HEARTBEAT_BATTERY_WRITE_DELTA = 5;
 const DEVICE_SENT_COUNT_CACHE_MS = 60 * 1000;
 const STALE_PROCESSING_TIMEOUT_MS = 120000; // Requeue jobs stuck in processing for 2+ minutes
-const STALE_PROCESSING_CHECK_INTERVAL_MS = 30000;
-const STALE_PROCESSING_BATCH_SIZE = 100;
-const AUTO_DISPATCH_INTERVAL_MS = 15000;
+const STALE_PROCESSING_CHECK_INTERVAL_MS = envInteger("ORBI_TALK_STALE_RECOVERY_INTERVAL_MS", 300000, 60000);
+const STALE_PROCESSING_BATCH_SIZE = envInteger("ORBI_TALK_STALE_RECOVERY_BATCH_SIZE", 50, 1);
+const AUTO_DISPATCH_INTERVAL_MS = envInteger("ORBI_TALK_AUTO_DISPATCH_INTERVAL_MS", 300000, 60000);
 const AUTO_DISPATCH_RETRY_COOLDOWN_MS = 60000;
-const AUTO_DISPATCH_BATCH_SIZE = 100;
+const AUTO_DISPATCH_BATCH_SIZE = envInteger("ORBI_TALK_AUTO_DISPATCH_BATCH_SIZE", 50, 1);
+const AUTO_DISPATCH_ENABLED = envEnabled("ORBI_TALK_AUTO_DISPATCH_ENABLED");
+const STALE_RECOVERY_ENABLED = envEnabled("ORBI_TALK_STALE_RECOVERY_ENABLED");
+const FIRESTORE_QUOTA_BACKOFF_BASE_MS = envInteger("ORBI_TALK_FIRESTORE_QUOTA_BACKOFF_MS", 900000, 60000);
+const FIRESTORE_QUOTA_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
 const FORCE_RESEND_BATCH_SIZE = 250;
 const DEVICE_ONLINE_FLUSH_BATCH_SIZE = 50;
 const CANONICAL_TALK_GATEWAY_BASE_URL = "https://talk.orbifinancial.com";
@@ -46,6 +62,36 @@ const SERVICE_VERSION = process.env.ORBI_TALK_GATEWAY_VERSION?.trim()
   || process.env.ORBI_GATEWAY_VERSION?.trim()
   || process.env.npm_package_version?.trim()
   || "0.0.0";
+
+let firestoreQuotaBackoffUntil = 0;
+let firestoreQuotaFailureCount = 0;
+
+function isFirestoreQuotaError(error: any) {
+  return error?.code === 8
+    || String(error?.code || "").toUpperCase() === "RESOURCE_EXHAUSTED"
+    || /RESOURCE_EXHAUSTED|quota exceeded/i.test(String(error?.message || error?.details || ""));
+}
+
+function registerFirestoreQuotaBackoff(scope: string, error: any) {
+  if (!isFirestoreQuotaError(error)) {
+    return false;
+  }
+  firestoreQuotaFailureCount += 1;
+  const backoffMs = Math.min(
+    FIRESTORE_QUOTA_BACKOFF_BASE_MS * (2 ** Math.min(firestoreQuotaFailureCount - 1, 5)),
+    FIRESTORE_QUOTA_BACKOFF_MAX_MS,
+  );
+  firestoreQuotaBackoffUntil = Date.now() + backoffMs;
+  console.warn(
+    `[${scope}] Firestore quota exhausted; background reads paused for ${Math.ceil(backoffMs / 60000)} minute(s).`,
+  );
+  return true;
+}
+
+function clearFirestoreQuotaBackoff() {
+  firestoreQuotaBackoffUntil = 0;
+  firestoreQuotaFailureCount = 0;
+}
 
 function normalizeTalkGatewayBaseUrl(rawUrl: string | undefined | null) {
   const value = rawUrl?.trim();
@@ -974,6 +1020,73 @@ function generateExternalApiKey() {
   return `orbi_live_${randomPart}`;
 }
 
+type ExternalCredential = {
+  authType: "user_api_key";
+  credentialId: string;
+  ownerUid: string | null;
+  ownerEmail: string | null;
+  scopes: string[];
+  name: string | null;
+};
+
+const API_CREDENTIAL_CACHE_MS = envInteger("ORBI_TALK_API_CREDENTIAL_CACHE_MS", 300000, 60000);
+const externalCredentialCache = new Map<string, { credential: ExternalCredential; expiresAt: number }>();
+
+function apiKeysMatch(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function loadStaticApiCredentials() {
+  const credentials: Array<{ apiKey: string; credential: ExternalCredential }> = [];
+  const rawConfig = process.env.ORBI_TALK_STATIC_API_CREDENTIALS?.trim();
+  if (rawConfig) {
+    try {
+      const entries = JSON.parse(rawConfig);
+      if (Array.isArray(entries)) {
+        for (const [index, entry] of entries.entries()) {
+          const apiKey = normalizeOptionalString(entry?.apiKey);
+          if (!apiKey) continue;
+          credentials.push({
+            apiKey,
+            credential: {
+              authType: "user_api_key",
+              credentialId: `static_${index + 1}`,
+              ownerUid: normalizeOptionalString(entry?.ownerUid),
+              ownerEmail: normalizeOptionalString(entry?.ownerEmail)?.toLowerCase() || null,
+              scopes: Array.isArray(entry?.scopes)
+                ? entry.scopes.filter((scope: unknown): scope is string => typeof scope === "string")
+                : ["send_template", "send_sms", "send_email"],
+              name: normalizeOptionalString(entry?.name) || "Static Product Integration",
+            },
+          });
+        }
+      }
+    } catch (error) {
+      console.error("ORBI_TALK_STATIC_API_CREDENTIALS is not valid JSON:", error);
+    }
+  }
+
+  const shopApiKey = normalizeOptionalString(process.env.ORBI_SHOP_TALK_API_KEY);
+  if (shopApiKey) {
+    credentials.push({
+      apiKey: shopApiKey,
+      credential: {
+        authType: "user_api_key",
+        credentialId: "static_orbi_shop",
+        ownerUid: normalizeOptionalString(process.env.ORBI_SHOP_TALK_OWNER_UID),
+        ownerEmail: normalizeOptionalString(process.env.ORBI_SHOP_TALK_OWNER_EMAIL)?.toLowerCase() || null,
+        scopes: ["send_template", "send_sms", "send_email", "templates_read"],
+        name: "ORBI Shop",
+      },
+    });
+  }
+  return credentials;
+}
+
+const staticApiCredentials = loadStaticApiCredentials();
+
 function generatePairingCode() {
   const randomPart = crypto.randomBytes(18).toString("base64url");
   return `pair_${randomPart}`;
@@ -1061,6 +1174,12 @@ async function startServer() {
         return next();
       }
 
+      const staticCredential = staticApiCredentials.find((entry) => apiKeysMatch(rawApiKey, entry.apiKey));
+      if (staticCredential) {
+        req.externalAuth = staticCredential.credential;
+        return next();
+      }
+
       const adminApp = getFirebaseAdmin();
       if (!adminApp) {
         return res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -1068,6 +1187,11 @@ async function startServer() {
 
       const db = adminApp.firestore();
       const keyHash = hashApiKey(rawApiKey);
+      const cachedCredential = externalCredentialCache.get(keyHash);
+      if (cachedCredential && cachedCredential.expiresAt > Date.now()) {
+        req.externalAuth = cachedCredential.credential;
+        return next();
+      }
       const credentialDoc = await db.collection("api_credentials").doc(keyHash).get();
       if (!credentialDoc.exists) {
         return res.status(401).json({ error: "Invalid API key" });
@@ -1078,23 +1202,36 @@ async function startServer() {
         return res.status(403).json({ error: "API key is inactive" });
       }
 
-      await credentialDoc.ref.set(
-        {
-          lastUsedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      req.externalAuth = {
+      const resolvedCredential: ExternalCredential = {
         authType: "user_api_key",
         credentialId: credentialDoc.id,
-        ownerUid: credentialData.ownerUid,
+        ownerUid: credentialData.ownerUid || null,
         ownerEmail: credentialData.ownerEmail || null,
         scopes: Array.isArray(credentialData.scopes) ? credentialData.scopes : [],
         name: credentialData.name || null,
       };
+      externalCredentialCache.set(keyHash, {
+        credential: resolvedCredential,
+        expiresAt: Date.now() + API_CREDENTIAL_CACHE_MS,
+      });
+      req.externalAuth = resolvedCredential;
+      credentialDoc.ref.set(
+        { lastUsedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true },
+      ).catch((error) => {
+        if (!registerFirestoreQuotaBackoff("API Credential Usage", error)) {
+          console.warn("Failed to update API credential lastUsedAt:", error);
+        }
+      });
       next();
     } catch (error) {
+      if (registerFirestoreQuotaBackoff("API Authentication", error)) {
+        return res.status(503).json({
+          error: "API_CREDENTIAL_STORE_UNAVAILABLE",
+          message: "Scoped API key verification is temporarily unavailable because Firestore quota is exhausted.",
+          retryAfterSeconds: Math.max(Math.ceil((firestoreQuotaBackoffUntil - Date.now()) / 1000), 60),
+        });
+      }
       console.error("External API key auth failed:", error);
       return res.status(500).json({ error: "Failed to authenticate API key" });
     }
@@ -1248,12 +1385,12 @@ async function startServer() {
       const counts: Record<string, number> = {};
 
       for (const status of statuses) {
-        let query: any = db.collection("message_logs").where("status", "==", status).limit(1000);
+        let query: any = db.collection("message_logs").where("status", "==", status);
         if (ownerUid) {
           query = query.where("createdBy", "==", ownerUid);
         }
-        const snapshot = await query.get();
-        counts[status] = snapshot.size;
+        const snapshot = await query.count().get();
+        counts[status] = snapshot.data().count || 0;
       }
 
       const staleThreshold = admin.firestore.Timestamp.fromMillis(
@@ -1261,21 +1398,27 @@ async function startServer() {
       );
       let staleQuery: any = db.collection("message_logs")
         .where("status", "==", "processing")
-        .where("updatedAt", "<=", staleThreshold)
-        .limit(1000);
+        .where("updatedAt", "<=", staleThreshold);
       if (ownerUid) {
         staleQuery = staleQuery.where("createdBy", "==", ownerUid);
       }
-      const staleSnapshot = await staleQuery.get();
+      const staleSnapshot = await staleQuery.count().get();
+      clearFirestoreQuotaBackoff();
 
       return res.json({
         ownerUid: ownerUid || null,
         generatedAt: new Date().toISOString(),
         staleProcessingTimeoutSeconds: Math.round(STALE_PROCESSING_TIMEOUT_MS / 1000),
         counts,
-        staleProcessingCount: staleSnapshot.size,
+        staleProcessingCount: staleSnapshot.data().count || 0,
       });
     } catch (error) {
+      if (registerFirestoreQuotaBackoff("Queue Health", error)) {
+        return res.status(429).json({
+          error: "FIRESTORE_QUOTA_EXHAUSTED",
+          retryAfterSeconds: Math.max(Math.ceil((firestoreQuotaBackoffUntil - Date.now()) / 1000), 60),
+        });
+      }
       console.error("Failed to fetch queue health:", error);
       return res.status(500).json({ error: "Failed to fetch queue health" });
     }
@@ -3375,9 +3518,19 @@ async function startServer() {
     }
   }, STALE_CHECK_INTERVAL_MS);
 
-  setInterval(async () => {
+  let staleRecoveryInFlight = false;
+  const recoverStaleProcessing = async () => {
+    if (
+      !STALE_RECOVERY_ENABLED
+      || staleRecoveryInFlight
+      || Date.now() < firestoreQuotaBackoffUntil
+    ) {
+      return;
+    }
+    staleRecoveryInFlight = true;
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {
+      staleRecoveryInFlight = false;
       return;
     }
 
@@ -3391,6 +3544,7 @@ async function startServer() {
         .where("updatedAt", "<=", cutoff)
         .limit(STALE_PROCESSING_BATCH_SIZE)
         .get();
+      clearFirestoreQuotaBackoff();
 
       if (staleSnapshot.empty) {
         return;
@@ -3426,9 +3580,16 @@ async function startServer() {
         );
       }
     } catch (error) {
-      console.error("[Queue Recovery] Failed to recover stale processing messages:", error);
+      if (!registerFirestoreQuotaBackoff("Queue Recovery", error)) {
+        console.error("[Queue Recovery] Failed to recover stale processing messages:", error);
+      }
+    } finally {
+      staleRecoveryInFlight = false;
     }
-  }, STALE_PROCESSING_CHECK_INTERVAL_MS);
+  };
+  if (STALE_RECOVERY_ENABLED) {
+    setInterval(recoverStaleProcessing, STALE_PROCESSING_CHECK_INTERVAL_MS);
+  }
 
   // Function to notify devices of new messages
   // This could be called from the /api/send-template endpoint
@@ -3528,24 +3689,33 @@ async function startServer() {
     const db = adminApp.firestore();
     const limit = Math.min(Math.max(options.limit || AUTO_DISPATCH_BATCH_SIZE, 1), FORCE_RESEND_BATCH_SIZE);
     const statuses = options.includeFailed === false ? ["pending", "queued"] : ["pending", "queued", "failed"];
-    const docs: any[] = [];
 
-    for (const status of statuses) {
-      if (docs.length >= limit) {
-        break;
+    if (options.reason === "interval_sweep") {
+      const hasLiveRelay = Array.from(connectedDevices.values())
+        .some((socket) => socket.readyState === WebSocket.OPEN);
+      if (!hasLiveRelay || Date.now() < firestoreQuotaBackoffUntil) {
+        return {
+          scanned: 0,
+          pushed: 0,
+          pending: 0,
+          skipped: 0,
+          skippedRecent: 0,
+          results: [],
+        };
       }
-
-      let queue: any = db.collection("message_logs")
-        .where("status", "==", status)
-        .limit(limit - docs.length);
-
-      if (options.ownerUid) {
-        queue = queue.where("createdBy", "==", options.ownerUid);
-      }
-
-      const snapshot = await queue.get();
-      docs.push(...snapshot.docs);
     }
+
+    let queue: any = db.collection("message_logs")
+      .where("status", "in", statuses)
+      .limit(limit);
+
+    if (options.ownerUid) {
+      queue = queue.where("createdBy", "==", options.ownerUid);
+    }
+
+    const snapshot = await queue.get();
+    const docs: any[] = snapshot.docs;
+    clearFirestoreQuotaBackoff();
 
     let pushed = 0;
     let pending = 0;
@@ -3676,7 +3846,10 @@ async function startServer() {
   }
 
   let queueDispatchInFlight = false;
-  setInterval(async () => {
+  const runAutomaticQueueDispatch = async () => {
+    if (!AUTO_DISPATCH_ENABLED || Date.now() < firestoreQuotaBackoffUntil) {
+      return;
+    }
     if (queueDispatchInFlight) {
       return;
     }
@@ -3687,7 +3860,7 @@ async function startServer() {
         reason: "interval_sweep",
         limit: AUTO_DISPATCH_BATCH_SIZE,
         cooldownMs: AUTO_DISPATCH_RETRY_COOLDOWN_MS,
-        includeFailed: true,
+        includeFailed: false,
       });
 
       if (result.pushed > 0 || result.pending > 0) {
@@ -3696,11 +3869,16 @@ async function startServer() {
         );
       }
     } catch (error) {
-      console.error("[Queue Auto Dispatch] Failed to dispatch unsent messages:", error);
+      if (!registerFirestoreQuotaBackoff("Queue Auto Dispatch", error)) {
+        console.error("[Queue Auto Dispatch] Failed to dispatch unsent messages:", error);
+      }
     } finally {
       queueDispatchInFlight = false;
     }
-  }, AUTO_DISPATCH_INTERVAL_MS);
+  };
+  if (AUTO_DISPATCH_ENABLED) {
+    setInterval(runAutomaticQueueDispatch, AUTO_DISPATCH_INTERVAL_MS);
+  }
 
   const keepAliveBaseUrl = resolveTalkGatewayBaseUrl();
   const keepAliveApiKey =
