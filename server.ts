@@ -640,6 +640,7 @@ function normalizeImportedTemplate(input: any) {
     name: typeof input?.name === "string" ? input.name.trim() : "",
     language: typeof input?.language === "string" && input.language.trim() ? input.language.trim() : "en",
     subject: typeof input?.subject === "string" ? input.subject.trim() : "",
+    senderName: typeof input?.senderName === "string" ? input.senderName.trim() : "",
     fromEmail: typeof input?.fromEmail === "string" ? input.fromEmail.trim() : "",
     replyTo: typeof input?.replyTo === "string" ? input.replyTo.trim() : "",
     body: normalizedBody,
@@ -680,6 +681,7 @@ function extractTemplateVariables(template: Record<string, unknown>) {
   };
 
   capture(template.subject);
+  capture(template.senderName);
   capture(template.body);
   if (Array.isArray(template.components)) {
     for (const component of template.components) {
@@ -709,6 +711,10 @@ function validateImportedTemplate(template: Record<string, unknown>) {
 
   if (template.subject != null && (typeof template.subject !== "string" || template.subject.length >= 255)) {
     return "Template subject is invalid";
+  }
+
+  if (template.senderName != null && (typeof template.senderName !== "string" || template.senderName.length >= 121)) {
+    return "Template senderName is invalid";
   }
 
   if (template.fromEmail != null && (typeof template.fromEmail !== "string" || template.fromEmail.length >= 255)) {
@@ -1583,6 +1589,7 @@ async function startServer() {
           language: entry.language || "en",
           messageType: entry.messageType || "transactional",
           subject: entry.subject || "",
+          senderName: entry.senderName || "",
           fromEmail: entry.fromEmail || "",
           replyTo: entry.replyTo || "",
           body: entry.body || "",

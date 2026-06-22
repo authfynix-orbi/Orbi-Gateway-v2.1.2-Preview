@@ -128,11 +128,14 @@ service cloud.firestore {
     }
 
     function isValidTemplate() {
-      return hasOnlyAllowedFields(['name', 'channel', 'language', 'subject', 'body', 'components', 'messageType', 'createdBy', 'createdAt']) &&
+      return hasOnlyAllowedFields(['name', 'channel', 'language', 'subject', 'senderName', 'fromEmail', 'replyTo', 'body', 'components', 'messageType', 'createdBy', 'createdAt']) &&
              request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() < 255 &&
              request.resource.data.channel in ['sms', 'whatsapp', 'email', 'push'] &&
              request.resource.data.language is string && request.resource.data.language.size() > 0 && request.resource.data.language.size() < 10 &&
              (!('subject' in request.resource.data) || (request.resource.data.subject is string && request.resource.data.subject.size() < 255)) &&
+             (!('senderName' in request.resource.data) || (request.resource.data.senderName is string && request.resource.data.senderName.size() < 121)) &&
+             (!('fromEmail' in request.resource.data) || (request.resource.data.fromEmail is string && request.resource.data.fromEmail.size() < 255)) &&
+             (!('replyTo' in request.resource.data) || (request.resource.data.replyTo is string && request.resource.data.replyTo.size() < 255)) &&
              request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() < 1000 &&
              (!('components' in request.resource.data) || (
                request.resource.data.components is list &&

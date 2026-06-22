@@ -20,15 +20,15 @@ Recommended credential scopes:
 
 ## Sender Policy
 
-ORBI Shop may use any approved ORBI sender when business context requires it, but the default sender for marketplace lifecycle messages is:
+ORBI Shop uses two sender modes:
 
-```text
-ORBI Shop <shop@orbifinancial.com>
-```
+- Vendor lifecycle messages resolve the registered vendor name and an allow-listed vendor email at runtime.
+- ORBI Shop platform, support, and campaign messages use the approved ORBI aliases stored with the template.
 
 Use these identities by purpose:
 
-- `shop@orbifinancial.com`: orders, escrow, delivery, receipts, marketplace lifecycle.
+- Runtime vendor address: buyer order, escrow, delivery, and refund lifecycle messages.
+- `shop@orbifinancial.com`: ORBI Shop marketplace and seller operational messages.
 - `offers@orbifinancial.com`: approved buyer offers, discovery campaigns, and promotional marketplace notices.
 - `sellers@orbifinancial.com`: seller education, merchant growth campaigns, and partner guidance.
 - `support@orbifinancial.com`: disputes, refunds requiring support, seller/customer assistance.
@@ -67,7 +67,14 @@ curl -X POST https://talk.orbifinancial.com/api/send-template \
     "ownerUid": "'"$ORBI_SHOP_TALK_OWNER_UID"'",
     "ownerEmail": "shop@orbifinancial.com",
     "requestId": "shop-order-created-ORBI-SHOP-10001",
+    "brand": {
+      "code": "MERCHANT_KILIMANJARO_BOOKS",
+      "displayName": "Kilimanjaro Books",
+      "senderEmail": "receipts@kilimanjarobooks.com",
+      "source": "merchant"
+    },
     "data": {
+      "businessName": "Kilimanjaro Books",
       "customerName": "Daniel",
       "orderId": "ORBI-SHOP-10001",
       "currency": "TZS",
@@ -80,6 +87,8 @@ curl -X POST https://talk.orbifinancial.com/api/send-template \
 ## Security Rules
 
 - Never put `ORBI_SHOP_TALK_API_KEY` in browser JavaScript, mobile apps, screenshots, logs, or templates.
+- Verify each vendor sender domain with the configured email provider and add the exact mailbox to `ORBI_TALK_EMAIL_ALLOWED_FROM` before activation.
+- Store the approved vendor mailbox as `merchants.metadata.notification_sender_email` or in ORBI Shop's equivalent merchant profile.
 - Always send `requestId` so retries do not create duplicate messages.
 - Use template messages for customer lifecycle events; reserve direct email/SMS for controlled operational cases.
 - Keep ORBI Shop message delivery separate from ORBI Pay Gateway. Pay Gateway moves money; Talk Gateway communicates.

@@ -47,7 +47,9 @@ interface Template {
   channel: 'sms' | 'whatsapp' | 'email' | 'push';
   language: string;
   subject?: string;
+  senderName?: string;
   fromEmail?: string;
+  replyTo?: string;
   body: string;
   components?: Array<{
     type: string;
@@ -85,7 +87,9 @@ const buildTemplatePayload = ({
   name,
   language,
   subject,
+  senderName,
   fromEmail,
+  replyTo,
   body,
   channel,
   messageType,
@@ -94,7 +98,9 @@ const buildTemplatePayload = ({
   name: string;
   language: string;
   subject: string;
+  senderName: string;
   fromEmail: string;
+  replyTo: string;
   body: string;
   channel: Template['channel'];
   messageType: Template['messageType'];
@@ -106,7 +112,9 @@ const buildTemplatePayload = ({
     name: string;
     language: string;
     subject: string;
+    senderName?: string;
     fromEmail?: string;
+    replyTo?: string;
     body: string;
     channel: Template['channel'];
     messageType: Template['messageType'];
@@ -115,7 +123,9 @@ const buildTemplatePayload = ({
     name: name.trim(),
     language: language.trim(),
     subject: subject.trim(),
+    ...(channel === 'email' && senderName.trim() ? { senderName: senderName.trim() } : {}),
     ...(channel === 'email' && fromEmail.trim() ? { fromEmail: fromEmail.trim() } : {}),
+    ...(channel === 'email' && replyTo.trim() ? { replyTo: replyTo.trim() } : {}),
     body: trimmedBody,
     channel,
     messageType,
@@ -141,6 +151,13 @@ const buildTemplatePayload = ({
 };
 
 const emailSenderOptions = [
+  {
+    label: 'Runtime Vendor',
+    email: 'Supplied by trusted backend',
+    badge: 'Dynamic',
+    description: 'Use the vendor sender email from runtime brand data. The gateway still requires the address in its allow-list.',
+    value: '',
+  },
   {
     label: 'No Reply',
     email: 'no-reply@orbifinancial.com',
@@ -223,7 +240,9 @@ export default function TemplateManager() {
   const [newName, setNewName] = useState('');
   const [newLanguage, setNewLanguage] = useState('en');
   const [newSubject, setNewSubject] = useState('');
+  const [newSenderName, setNewSenderName] = useState('');
   const [newFromEmail, setNewFromEmail] = useState(emailSenderOptions[0].value);
+  const [newReplyTo, setNewReplyTo] = useState('');
   const [newBody, setNewBody] = useState('');
   const [newChannel, setNewChannel] = useState<'sms' | 'whatsapp' | 'email' | 'push'>('sms');
   const [newMessageType, setNewMessageType] = useState<'transactional' | 'promotional'>('transactional');
@@ -323,9 +342,13 @@ export default function TemplateManager() {
         name: template.name,
         language: template.language,
         subject: template.subject || '',
+        senderName: template.senderName || '',
+        fromEmail: template.fromEmail || '',
+        replyTo: template.replyTo || '',
         body: template.body,
         channel: template.channel,
         messageType: template.messageType,
+        ...(template.components?.length ? { components: template.components } : {}),
       }));
     const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -519,7 +542,9 @@ export default function TemplateManager() {
         name: newName,
         language: newLanguage,
         subject: newSubject,
+        senderName: newSenderName,
         fromEmail: newFromEmail,
+        replyTo: newReplyTo,
         body: newBody,
         channel: newChannel,
         messageType: newMessageType,
@@ -549,7 +574,9 @@ export default function TemplateManager() {
     setNewName('');
     setNewLanguage('en');
     setNewSubject('');
+    setNewSenderName('');
     setNewFromEmail(emailSenderOptions[0].value);
+    setNewReplyTo('');
     setNewBody('');
     setNewChannel('sms');
     setNewMessageType('transactional');
@@ -561,7 +588,9 @@ export default function TemplateManager() {
     setNewName(template.name);
     setNewLanguage(template.language);
     setNewSubject(template.subject || '');
+    setNewSenderName(template.senderName || '');
     setNewFromEmail(template.fromEmail || emailSenderOptions[0].value);
+    setNewReplyTo(template.replyTo || '');
     setNewBody(template.body);
     setNewChannel(template.channel);
     setNewMessageType(template.messageType);
@@ -574,7 +603,9 @@ export default function TemplateManager() {
     setNewName(`${template.name}_copy`);
     setNewLanguage(template.language);
     setNewSubject(template.subject || '');
+    setNewSenderName(template.senderName || '');
     setNewFromEmail(template.fromEmail || emailSenderOptions[0].value);
+    setNewReplyTo(template.replyTo || '');
     setNewBody(template.body);
     setNewChannel(template.channel);
     setNewMessageType(template.messageType);
@@ -1185,6 +1216,7 @@ export default function TemplateManager() {
                     </div>
 
                     <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                    <div className="space-y-3">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email Subject</label>
                       <input
@@ -1194,6 +1226,27 @@ export default function TemplateManager() {
                         onChange={(e) => setNewSubject(e.target.value)}
                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
                       />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Sender Display Name</label>
+                      <input
+                        type="text"
+                        placeholder="e.g., {{businessName}} or ORBI Support"
+                        value={newSenderName}
+                        onChange={(e) => setNewSenderName(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Reply-To Override</label>
+                      <input
+                        type="email"
+                        placeholder="Optional approved reply address"
+                        value={newReplyTo}
+                        onChange={(e) => setNewReplyTo(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all text-sm font-bold placeholder:text-slate-300 shadow-sm"
+                      />
+                    </div>
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Allowed Email Senders</label>
@@ -1245,7 +1298,7 @@ export default function TemplateManager() {
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2">
                         <p className="text-[10px] font-bold leading-relaxed text-slate-500">
-                          Selected sender: <span className="font-mono text-slate-800">{newFromEmail}</span>. Replies go to this alias and Cloudflare Email Routing decides the final inbox.
+                          Selected sender: <span className="font-mono text-slate-800">{newFromEmail || 'Runtime vendor address'}</span>. The gateway validates the final address against its allow-list before delivery.
                         </p>
                       </div>
                     </div>
